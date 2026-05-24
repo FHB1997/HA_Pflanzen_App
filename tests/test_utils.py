@@ -5,12 +5,15 @@ keine HA-Imports enthält. ``conftest.py`` legt den passenden sys.path.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 
 from _utils import (  # type: ignore[import-not-found]
     clean_data,
+    is_in_quiet_hours,
+    is_rate_limited,
     needs_time_based,
     parse_iso,
+    parse_time_string,
     try_float,
     utcnow_iso,
 )
@@ -98,6 +101,84 @@ def test_needs_time_based_exactly_due():
 def test_needs_time_based_overdue():
     ts = (NOW - timedelta(days=14)).isoformat()
     assert needs_time_based(ts, 7, NOW) is True
+
+
+# --------------------------- utcnow_iso ---------------------------
+
+# --------------------------- parse_time_string ---------------------------
+
+def test_parse_time_string_hhmm():
+    assert parse_time_string("22:00") == dt_time(22, 0)
+
+
+def test_parse_time_string_hhmmss():
+    assert parse_time_string("08:15:30") == dt_time(8, 15, 30)
+
+
+def test_parse_time_string_invalid():
+    assert parse_time_string(None) is None
+    assert parse_time_string("") is None
+    assert parse_time_string("abc") is None
+    assert parse_time_string("25:00") is None
+
+
+# --------------------------- is_in_quiet_hours ---------------------------
+
+def test_quiet_hours_disabled_when_unset():
+    assert is_in_quiet_hours(dt_time(3, 0), None, dt_time(8, 0)) is False
+    assert is_in_quiet_hours(dt_time(3, 0), dt_time(22, 0), None) is False
+
+
+def test_quiet_hours_disabled_when_equal():
+    # start == end → kein Fenster
+    assert is_in_quiet_hours(dt_time(12, 0), dt_time(8, 0), dt_time(8, 0)) is False
+
+
+def test_quiet_hours_simple_daytime_window():
+    # Quiet 08:00–22:00 (kein Wrap)
+    start, end = dt_time(8, 0), dt_time(22, 0)
+    assert is_in_quiet_hours(dt_time(7, 59), start, end) is False
+    assert is_in_quiet_hours(dt_time(8, 0), start, end) is True
+    assert is_in_quiet_hours(dt_time(15, 0), start, end) is True
+    assert is_in_quiet_hours(dt_time(21, 59), start, end) is True
+    assert is_in_quiet_hours(dt_time(22, 0), start, end) is False
+
+
+def test_quiet_hours_wrap_over_midnight():
+    # Quiet 22:00–08:00 (Wrap)
+    start, end = dt_time(22, 0), dt_time(8, 0)
+    assert is_in_quiet_hours(dt_time(22, 0), start, end) is True
+    assert is_in_quiet_hours(dt_time(23, 30), start, end) is True
+    assert is_in_quiet_hours(dt_time(0, 0), start, end) is True
+    assert is_in_quiet_hours(dt_time(7, 59), start, end) is True
+    assert is_in_quiet_hours(dt_time(8, 0), start, end) is False
+    assert is_in_quiet_hours(dt_time(12, 0), start, end) is False
+    assert is_in_quiet_hours(dt_time(21, 59), start, end) is False
+
+
+# --------------------------- is_rate_limited ---------------------------
+
+def test_rate_limit_disabled_when_zero_hours():
+    assert is_rate_limited("2026-05-24T11:00:00+00:00", 0, NOW) is False
+
+
+def test_rate_limit_disabled_when_never_notified():
+    assert is_rate_limited(None, 12, NOW) is False
+    assert is_rate_limited("", 12, NOW) is False
+
+
+def test_rate_limit_within_window():
+    last = (NOW - timedelta(hours=3)).isoformat()
+    assert is_rate_limited(last, 12, NOW) is True
+
+
+def test_rate_limit_outside_window():
+    last = (NOW - timedelta(hours=13)).isoformat()
+    assert is_rate_limited(last, 12, NOW) is False
+
+
+def test_rate_limit_garbage_returns_false():
+    assert is_rate_limited("kaputt", 12, NOW) is False
 
 
 # --------------------------- utcnow_iso ---------------------------

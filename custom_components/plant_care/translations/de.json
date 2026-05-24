@@ -10,6 +10,22 @@
       "single_instance_allowed": "Plant Care ist bereits eingerichtet."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Plant Care Pflege-Erinnerungen",
+        "description": "Automatische Benachrichtigungen, wenn eine Pflanze Wasser oder Dünger braucht. Leerer Notify-Service deaktiviert das Feature.",
+        "data": {
+          "reminders_enabled": "Erinnerungen aktivieren",
+          "notify_service": "Notify-Service (z.B. notify.mobile_app_iphone)",
+          "notify_title": "Titel der Benachrichtigung",
+          "quiet_hours_start": "Beginn Ruhezeit",
+          "quiet_hours_end": "Ende Ruhezeit",
+          "rate_limit_hours": "Mindestabstand zwischen Erinnerungen pro Pflanze (Stunden)"
+        }
+      }
+    }
+  },
   "services": {
     "add_plant": {
       "name": "Pflanze hinzufügen",
@@ -54,6 +70,14 @@
       "fields": {
         "plant_id": { "name": "Pflanzen-ID", "description": "ID der Pflanze" },
         "timestamp": { "name": "Zeitstempel", "description": "Optional, Standard ist jetzt" }
+      }
+    },
+    "send_reminders": {
+      "name": "Erinnerungen jetzt senden",
+      "description": "Prüft alle Pflanzen und sendet Benachrichtigungen über den konfigurierten Notify-Service. Respektiert Ruhezeiten und Rate-Limit, außer 'force' ist gesetzt.",
+      "fields": {
+        "plant_id": { "name": "Pflanzen-ID", "description": "Optional: nur diese Pflanze" },
+        "force": { "name": "Erzwingen", "description": "Ruhezeit und Rate-Limit ignorieren" }
       }
     }
   }

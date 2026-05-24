@@ -145,3 +145,22 @@ fertilize_plant:
       description: Optional, Standard ist jetzt.
       selector:
         datetime:
+
+send_reminders:
+  name: Erinnerungen jetzt senden
+  description: >
+    Prüft alle Pflanzen und sendet Benachrichtigungen über den
+    konfigurierten Notify-Service. Respektiert Ruhezeiten und Rate-Limit,
+    außer "force" ist gesetzt.
+  fields:
+    plant_id:
+      name: Pflanzen-ID
+      description: Optional, nur diese Pflanze.
+      selector:
+        text:
+    force:
+      name: Erzwingen
+      description: Ruhezeit und Rate-Limit ignorieren.
+      default: false
+      selector:
+        boolean:

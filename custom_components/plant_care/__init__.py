@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+from datetime import timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -14,6 +15,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     DEFAULT_FERTILIZE_DAYS,
@@ -26,9 +28,11 @@ from .const import (
     PANEL_TITLE,
     PHOTOS_URL_PATH,
     PLATFORMS,
+    REMINDER_SCAN_INTERVAL_MINUTES,
     SERVICE_ADD_PLANT,
     SERVICE_FERTILIZE_PLANT,
     SERVICE_REMOVE_PLANT,
+    SERVICE_SEND_REMINDERS,
     SERVICE_UPDATE_PLANT,
     SERVICE_WATER_PLANT,
 )
@@ -81,6 +85,13 @@ WATER_SCHEMA = vol.Schema(
     }
 )
 
+SEND_REMINDERS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("plant_id"): cv.string,
+        vol.Optional("force", default=False): cv.boolean,
+    }
+)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Setup einer Plant-Care-Instanz."""
@@ -114,6 +125,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # HTTP-View (Phase 2.1) registrieren
     hass.http.register_view(PlantPhotoUploadView(hass))
 
+    # Periodischer Scan für integrierte Pflege-Erinnerungen.
+    async def _reminder_tick(_now: Any) -> None:
+        try:
+            await coord.evaluate_reminders(entry.options)
+        except Exception:  # noqa: BLE001 – Tick darf nie crashen
+            _LOGGER.exception("Plant Care: Reminder-Scan fehlgeschlagen")
+
+    cancel_tick = async_track_time_interval(
+        hass,
+        _reminder_tick,
+        timedelta(minutes=REMINDER_SCAN_INTERVAL_MINUTES),
+    )
+    hass.data[DOMAIN]["cancel_tick"] = cancel_tick
+
     # Panel registrieren
     try:
         frontend.async_register_built_in_panel(
@@ -135,12 +160,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except ValueError:
         _LOGGER.debug("Panel war bereits registriert")
 
-    _register_services(hass, coord)
+    _register_services(hass, entry, coord)
 
     return True
 
 
-def _register_services(hass: HomeAssistant, coord: PlantCareCoordinator) -> None:
+def _register_services(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coord: PlantCareCoordinator,
+) -> None:
     """Registriert die Plant-Care-Services."""
 
     async def handle_add_plant(call: ServiceCall) -> ServiceResponse:
@@ -165,6 +194,14 @@ def _register_services(hass: HomeAssistant, coord: PlantCareCoordinator) -> None
             call.data["plant_id"], call.data.get("timestamp")
         )
 
+    async def handle_send_reminders(call: ServiceCall) -> ServiceResponse:
+        sent = await coord.evaluate_reminders(
+            entry.options,
+            only_plant_id=call.data.get("plant_id"),
+            force=bool(call.data.get("force", False)),
+        )
+        return {"sent": sent}
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_PLANT,
@@ -184,11 +221,22 @@ def _register_services(hass: HomeAssistant, coord: PlantCareCoordinator) -> None
     hass.services.async_register(
         DOMAIN, SERVICE_FERTILIZE_PLANT, handle_fertilize_plant, schema=WATER_SCHEMA
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_REMINDERS,
+        handle_send_reminders,
+        schema=SEND_REMINDERS_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Plant-Care-Instanz entladen."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    cancel_tick = hass.data.get(DOMAIN, {}).get("cancel_tick")
+    if cancel_tick is not None:
+        cancel_tick()
 
     try:
         frontend.async_remove_panel(hass, PANEL_FRONTEND_URL_PATH)
@@ -201,6 +249,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_REMOVE_PLANT,
         SERVICE_WATER_PLANT,
         SERVICE_FERTILIZE_PLANT,
+        SERVICE_SEND_REMINDERS,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

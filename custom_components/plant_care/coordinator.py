@@ -5,21 +5,41 @@ import base64
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
-from ._utils import clean_data, utcnow_iso
+from ._utils import (
+    clean_data,
+    is_in_quiet_hours,
+    is_rate_limited,
+    parse_time_string,
+    utcnow_iso,
+)
 from .const import (
+    CONF_NOTIFY_SERVICE,
+    CONF_NOTIFY_TITLE,
+    CONF_QUIET_HOURS_END,
+    CONF_QUIET_HOURS_START,
+    CONF_RATE_LIMIT_HOURS,
+    CONF_REMINDERS_ENABLED,
     DEFAULT_FERTILIZE_DAYS,
+    DEFAULT_NOTIFY_TITLE,
     DEFAULT_WATER_DAYS,
+    DOMAIN,
     HISTORY_MAX_ENTRIES,
     PHOTOS_URL_PATH,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
+    STATUS_NEEDS_BOTH,
+    STATUS_NEEDS_FERTILIZER,
+    STATUS_NEEDS_WATER,
+    STATUS_OK,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
@@ -54,6 +74,7 @@ class PlantCareCoordinator:
             plant.setdefault("fertilize_history", [])
             plant.setdefault("water_days", DEFAULT_WATER_DAYS)
             plant.setdefault("fertilize_days", DEFAULT_FERTILIZE_DAYS)
+            plant.setdefault("last_notified", None)
         self._plants = plants
 
         migrated = await self._migrate_data_url_photos()
@@ -216,3 +237,106 @@ class PlantCareCoordinator:
         await self._async_save_now()
         async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
         _LOGGER.debug("Plant Care: Pflanze %s gedüngt (%s)", plant_id, ts)
+
+    # ------------------------- Reminders / Notifications -------------------------
+
+    async def evaluate_reminders(
+        self,
+        options: Mapping[str, Any],
+        *,
+        only_plant_id: str | None = None,
+        force: bool = False,
+    ) -> int:
+        """Sendet Notifications für Pflanzen, die Pflege brauchen.
+
+        Liest den aktuellen Status aus den Sensor-Entities (inklusive
+        Moisture-Override) und respektiert Ruhezeiten + Rate-Limit
+        aus den ConfigEntry-Options. ``force=True`` überspringt beide.
+
+        Returns:
+            Anzahl tatsächlich versendeter Notifications.
+        """
+        notify_service_full = (options.get(CONF_NOTIFY_SERVICE) or "").strip()
+        enabled = options.get(CONF_REMINDERS_ENABLED, False)
+
+        if not notify_service_full or "." not in notify_service_full:
+            if force:
+                _LOGGER.warning(
+                    "Plant Care: notify_service ist nicht konfiguriert"
+                )
+            return 0
+        if not enabled and not force:
+            return 0
+
+        notify_domain, notify_service = notify_service_full.split(".", 1)
+        title = options.get(CONF_NOTIFY_TITLE) or DEFAULT_NOTIFY_TITLE
+
+        now_utc = datetime.now(timezone.utc)
+        now_local_time = dt_util.as_local(now_utc).time()
+        quiet_start = parse_time_string(options.get(CONF_QUIET_HOURS_START))
+        quiet_end = parse_time_string(options.get(CONF_QUIET_HOURS_END))
+        rate_hours = int(options.get(CONF_RATE_LIMIT_HOURS) or 0)
+
+        if not force and is_in_quiet_hours(now_local_time, quiet_start, quiet_end):
+            _LOGGER.debug("Plant Care: Quiet-Hours aktiv – keine Notifications")
+            return 0
+
+        registry = er.async_get(self.hass)
+
+        if only_plant_id is not None:
+            if only_plant_id not in self._plants:
+                return 0
+            candidates = [(only_plant_id, self._plants[only_plant_id])]
+        else:
+            candidates = list(self._plants.items())
+
+        sent = 0
+        for plant_id, plant in candidates:
+            if not force and is_rate_limited(
+                plant.get("last_notified"), rate_hours, now_utc
+            ):
+                continue
+            unique_id = f"{DOMAIN}_{plant_id}"
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+            if not entity_id:
+                continue
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state == STATUS_OK:
+                continue
+
+            name = plant.get("name") or plant_id
+            message = _build_reminder_message(name, state.state)
+
+            try:
+                await self.hass.services.async_call(
+                    notify_domain,
+                    notify_service,
+                    {"title": title, "message": message},
+                    blocking=False,
+                )
+            except Exception as err:  # noqa: BLE001 – pro Pflanze isolieren
+                _LOGGER.warning(
+                    "Plant Care: notify %s.%s fehlgeschlagen: %s",
+                    notify_domain,
+                    notify_service,
+                    err,
+                )
+                continue
+
+            plant["last_notified"] = now_utc.isoformat()
+            sent += 1
+
+        if sent:
+            await self._async_save_now()
+            _LOGGER.info("Plant Care: %d Erinnerung(en) versendet", sent)
+        return sent
+
+
+def _build_reminder_message(name: str, status: str) -> str:
+    if status == STATUS_NEEDS_BOTH:
+        return f"🌿 {name} braucht Wasser und Dünger."
+    if status == STATUS_NEEDS_WATER:
+        return f"🌿 {name} braucht Wasser."
+    if status == STATUS_NEEDS_FERTILIZER:
+        return f"🌱 {name} braucht Dünger."
+    return f"🌿 {name}"

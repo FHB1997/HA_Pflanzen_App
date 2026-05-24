@@ -1299,9 +1299,13 @@ class PlantCarePanel extends HTMLElement {
       }
 
       .tips {
-        background: var(--sage-bg);
+        /* Semi-transparente Tönung statt --sage-bg, damit der Background
+           sich an helle UND dunkle HA-Themes anpasst (sonst weiße Schrift
+           auf fast-weißem Sage-Bg). */
+        background: rgba(126, 174, 110, 0.12);
+        border-left: 3px solid var(--sage);
         border-radius: 10px;
-        padding: 14px;
+        padding: 14px 14px 14px 16px;
         margin-bottom: 20px;
       }
       .tips h3 { margin: 0 0 8px; font-size: 1rem; }

@@ -10,6 +10,22 @@
       "single_instance_allowed": "Plant Care is already configured."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Plant Care reminders",
+        "description": "Automatic reminders when a plant needs water or fertilizer. Leave the notify service empty to disable.",
+        "data": {
+          "reminders_enabled": "Enable reminders",
+          "notify_service": "Notify service (e.g. notify.mobile_app_iphone)",
+          "notify_title": "Notification title",
+          "quiet_hours_start": "Quiet hours start",
+          "quiet_hours_end": "Quiet hours end",
+          "rate_limit_hours": "Minimum hours between reminders for the same plant"
+        }
+      }
+    }
+  },
   "services": {
     "add_plant": {
       "name": "Add plant",
@@ -54,6 +70,14 @@
       "fields": {
         "plant_id": { "name": "Plant ID", "description": "ID of the plant" },
         "timestamp": { "name": "Timestamp", "description": "Optional, defaults to now" }
+      }
+    },
+    "send_reminders": {
+      "name": "Send reminders now",
+      "description": "Evaluates all plants and sends notifications via the configured notify service. Respects quiet hours and rate limit unless 'force' is set.",
+      "fields": {
+        "plant_id": { "name": "Plant ID", "description": "Optional: only this plant" },
+        "force": { "name": "Force", "description": "Ignore quiet hours and rate limit" }
       }
     }
   }

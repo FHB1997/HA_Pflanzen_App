@@ -47,7 +47,24 @@ SERVICE_UPDATE_PLANT: Final = "update_plant"
 SERVICE_REMOVE_PLANT: Final = "remove_plant"
 SERVICE_WATER_PLANT: Final = "water_plant"
 SERVICE_FERTILIZE_PLANT: Final = "fertilize_plant"
+SERVICE_SEND_REMINDERS: Final = "send_reminders"
 
 # Default-Intervalle (Tage)
 DEFAULT_WATER_DAYS: Final = 7
 DEFAULT_FERTILIZE_DAYS: Final = 30
+
+# Reminder-Options (config_entry.options)
+CONF_REMINDERS_ENABLED: Final = "reminders_enabled"
+CONF_NOTIFY_SERVICE: Final = "notify_service"
+CONF_QUIET_HOURS_START: Final = "quiet_hours_start"
+CONF_QUIET_HOURS_END: Final = "quiet_hours_end"
+CONF_RATE_LIMIT_HOURS: Final = "rate_limit_hours"
+CONF_NOTIFY_TITLE: Final = "notify_title"
+
+DEFAULT_QUIET_HOURS_START: Final = "22:00:00"
+DEFAULT_QUIET_HOURS_END: Final = "08:00:00"
+DEFAULT_RATE_LIMIT_HOURS: Final = 12
+DEFAULT_NOTIFY_TITLE: Final = "Plant Care"
+
+# Wie oft scannt der Hintergrund-Job die Pflanzen?
+REMINDER_SCAN_INTERVAL_MINUTES: Final = 30

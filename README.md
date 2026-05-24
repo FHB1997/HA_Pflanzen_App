@@ -61,13 +61,47 @@ Im Add/Edit-Formular einen Sensor auswählen. Die Logik:
 
 ## Erinnerungen einrichten
 
-Plant Care liefert einen Blueprint mit. Importieren:
+Es gibt zwei Wege – such dir einen aus.
 
-1. Im Home Assistant: **Einstellungen → Automatisierungen & Szenen → Blueprints → Blueprint importieren**
-2. URL: `https://github.com/<user>/HA_Pflanzen_App/blob/main/blueprints/automation/plant_care/water_reminder.yaml`
+### Variante A (empfohlen): Integrierte Erinnerungen über Options
+
+Eine zentrale Konfiguration, gilt für **alle** Pflanzen, ohne Automation pro Pflanze:
+
+1. **Einstellungen → Geräte & Dienste → Plant Care → ⚙ Konfigurieren**
+2. **Erinnerungen aktivieren** anhaken
+3. **Notify-Service** eintragen (z.B. `notify.mobile_app_iphone`,
+   `notify.notify`, `notify.telegram_bot_123`)
+4. Optional: Titel, Ruhezeiten, Mindestabstand zwischen Erinnerungen
+5. Speichern
+
+Plant Care prüft jede Pflanze alle 30 Minuten. Bei Status `needs_water` /
+`needs_fertilizer` / `needs_both` außerhalb der Ruhezeit und außerhalb des
+Rate-Limit-Fensters wird eine Benachrichtigung versendet.
+
+Manuelle Auslösung jederzeit über den Service **`plant_care.send_reminders`**:
+
+```yaml
+service: plant_care.send_reminders
+data:
+  # Optional: nur diese Pflanze
+  plant_id: abc123
+  # Optional: Ruhezeit und Rate-Limit ignorieren
+  force: true
+```
+
+### Variante B: Pro-Pflanze-Automation via Blueprint
+
+Wenn du pro Pflanze einen anderen Notify-Kanal willst (z.B. Wohnzimmer →
+Telegram, Schlafzimmer → Push):
+
+1. **Einstellungen → Automatisierungen & Szenen → Blueprints → Blueprint importieren**
+2. URL: `https://github.com/FHB1997/HA_Pflanzen_App/blob/main/blueprints/automation/plant_care/water_reminder.yaml`
 3. Pflanze, Notify-Service und Ruhezeiten auswählen → **Automatisierung erstellen**
+4. Pro Pflanze wiederholen
 
-Du bekommst dann eine Push-Benachrichtigung, sobald die Pflanze Wasser/Dünger braucht.
+Beide Varianten dürfen parallel laufen – das Rate-Limit der integrierten
+Erinnerungen verhindert nur Mehrfach-Notifications aus der **integrierten**
+Variante; der Blueprint hat seine eigene Debounce-Logik.
 
 ## Lovelace Custom Card
 
@@ -86,6 +120,7 @@ Eine kompakte Karte für reguläre Dashboards.
 | `plant_care.remove_plant` | Pflanze löschen | – |
 | `plant_care.water_plant` | "Jetzt gegossen" markieren | – |
 | `plant_care.fertilize_plant` | "Jetzt gedüngt" markieren | – |
+| `plant_care.send_reminders` | Erinnerungen jetzt senden (manuell) | `{sent}` |
 
 ## Troubleshooting
 
