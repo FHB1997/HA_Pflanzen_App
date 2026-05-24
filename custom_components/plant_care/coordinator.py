@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from homeassistant.core import HomeAssistant
@@ -15,6 +15,7 @@ from homeassistant.util import dt as dt_util
 
 from ._utils import (
     clean_data,
+    compute_snooze_last_notified,
     is_in_quiet_hours,
     is_rate_limited,
     parse_time_string,
@@ -36,6 +37,7 @@ from .const import (
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
+    SNOOZE_DEFAULT_HOURS,
     STATUS_NEEDS_BOTH,
     STATUS_NEEDS_FERTILIZER,
     STATUS_NEEDS_WATER,
@@ -57,6 +59,16 @@ class PlantCareCoordinator:
         self.hass = hass
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._plants: dict[str, dict[str, Any]] = {}
+        self._entry: Any = None  # ConfigEntry, lazy bound via bind_entry
+
+    def bind_entry(self, entry: Any) -> None:
+        """Speichert die ConfigEntry-Referenz für Options-Zugriff.
+
+        Wird vom Integration-Setup aufgerufen, damit der Coordinator
+        Options (z.B. rate_limit_hours) lesen kann, ohne dass jeder
+        Aufruf die Werte als Argument durchschleifen muss.
+        """
+        self._entry = entry
 
     @property
     def plants(self) -> dict[str, dict[str, Any]]:
@@ -209,12 +221,18 @@ class PlantCareCoordinator:
     async def async_water_plant(
         self, plant_id: str, timestamp: datetime | None = None
     ) -> None:
-        """Markiert eine Pflanze als gegossen."""
+        """Markiert eine Pflanze als gegossen.
+
+        Setzt zusätzlich ``last_notified`` zurück, damit ein zwischen-
+        zeitlicher Snooze die nächste reguläre Reminder-Notification
+        nicht unnötig blockiert.
+        """
         if plant_id not in self._plants:
             raise ValueError(f"Pflanze {plant_id} nicht gefunden")
         ts = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
         plant = self._plants[plant_id]
         plant["last_watered"] = ts
+        plant["last_notified"] = None
         history = plant.setdefault("water_history", [])
         history.insert(0, ts)
         plant["water_history"] = history[:HISTORY_MAX_ENTRIES]
@@ -225,18 +243,55 @@ class PlantCareCoordinator:
     async def async_fertilize_plant(
         self, plant_id: str, timestamp: datetime | None = None
     ) -> None:
-        """Markiert eine Pflanze als gedüngt."""
+        """Markiert eine Pflanze als gedüngt.
+
+        Setzt zusätzlich ``last_notified`` zurück, damit ein zwischen-
+        zeitlicher Snooze die nächste reguläre Reminder-Notification
+        nicht unnötig blockiert.
+        """
         if plant_id not in self._plants:
             raise ValueError(f"Pflanze {plant_id} nicht gefunden")
         ts = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
         plant = self._plants[plant_id]
         plant["last_fertilized"] = ts
+        plant["last_notified"] = None
         history = plant.setdefault("fertilize_history", [])
         history.insert(0, ts)
         plant["fertilize_history"] = history[:HISTORY_MAX_ENTRIES]
         await self._async_save_now()
         async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
         _LOGGER.debug("Plant Care: Pflanze %s gedüngt (%s)", plant_id, ts)
+
+    async def async_snooze_plant(
+        self, plant_id: str, hours: int = SNOOZE_DEFAULT_HOURS
+    ) -> None:
+        """Verzögert die nächste Reminder-Notification um mind. ``hours``.
+
+        Rate-Limit-Reset-Variante: setzt ``last_notified`` so weit in
+        die Zukunft, dass der bestehende Rate-Limit-Mechanismus die
+        nächste Notification um ``hours`` Stunden verzögert. Der
+        Pflanzen-Status bleibt unverändert.
+        """
+        if plant_id not in self._plants:
+            raise ValueError(f"Pflanze {plant_id} nicht gefunden")
+        rate_limit_hours = 0
+        if self._entry is not None:
+            rate_limit_hours = int(
+                self._entry.options.get(CONF_RATE_LIMIT_HOURS) or 0
+            )
+        new_last_notified = compute_snooze_last_notified(
+            now=datetime.now(timezone.utc),
+            snooze_hours=hours,
+            rate_limit_hours=rate_limit_hours,
+        )
+        self._plants[plant_id]["last_notified"] = new_last_notified.isoformat()
+        await self._async_save_now()
+        _LOGGER.info(
+            "Plant Care: Pflanze %s für %d h gesnoozed (bis %s)",
+            plant_id,
+            hours,
+            new_last_notified.isoformat(),
+        )
 
     # ------------------------- Reminders / Notifications -------------------------
 
@@ -306,12 +361,20 @@ class PlantCareCoordinator:
 
             name = plant.get("name") or plant_id
             message = _build_reminder_message(name, state.state)
+            payload: dict[str, Any] = {"title": title, "message": message}
+
+            if _is_mobile_app_service(notify_service):
+                payload["data"] = {
+                    "actions": _build_notification_actions(plant_id, state.state),
+                    "tag": f"plant_care_{plant_id}",
+                    "group": "plant_care",
+                }
 
             try:
                 await self.hass.services.async_call(
                     notify_domain,
                     notify_service,
-                    {"title": title, "message": message},
+                    payload,
                     blocking=False,
                 )
             except Exception as err:  # noqa: BLE001 – pro Pflanze isolieren
@@ -340,3 +403,31 @@ def _build_reminder_message(name: str, status: str) -> str:
     if status == STATUS_NEEDS_FERTILIZER:
         return f"🌱 {name} braucht Dünger."
     return f"🌿 {name}"
+
+
+def _build_notification_actions(
+    plant_id: str, status: str
+) -> list[dict[str, str]]:
+    """Action-Buttons für die HA-Mobile-App-Notification.
+
+    Welche Buttons gezeigt werden, hängt vom Status ab. ``snooze`` ist
+    immer dabei, ``water`` / ``fertilize`` je nach Bedarf.
+    """
+    actions: list[dict[str, str]] = []
+    if status in (STATUS_NEEDS_WATER, STATUS_NEEDS_BOTH):
+        actions.append(
+            {"action": f"PLANTCARE_WATER_{plant_id}", "title": "💧 Gegossen"}
+        )
+    if status in (STATUS_NEEDS_FERTILIZER, STATUS_NEEDS_BOTH):
+        actions.append(
+            {"action": f"PLANTCARE_FERTILIZE_{plant_id}", "title": "🌱 Gedüngt"}
+        )
+    actions.append(
+        {"action": f"PLANTCARE_SNOOZE_{plant_id}", "title": "💤 Snooze 1d"}
+    )
+    return actions
+
+
+def _is_mobile_app_service(notify_service: str) -> bool:
+    """``True`` wenn der Service-Name ein HA-Mobile-App-Target ist."""
+    return notify_service.startswith("mobile_app_")

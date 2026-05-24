@@ -13,10 +13,18 @@ import voluptuous as vol
 from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.core import (
+    Event,
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
+from ._utils import parse_action_id
 from .const import (
     DEFAULT_FERTILIZE_DAYS,
     DEFAULT_WATER_DAYS,
@@ -139,6 +147,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data[DOMAIN]["cancel_tick"] = cancel_tick
 
+    # Coordinator braucht entry-Zugriff für async_snooze_plant.
+    coord.bind_entry(entry)
+
+    @callback
+    def _handle_action_event(event: Event) -> None:
+        raw_id = event.data.get("action", "")
+        parsed = parse_action_id(raw_id)
+        if parsed is None:
+            return  # Event von anderer Integration – ignorieren
+        action, plant_id = parsed
+
+        async def _dispatch() -> None:
+            try:
+                if action == "WATER":
+                    await coord.async_water_plant(plant_id)
+                elif action == "FERTILIZE":
+                    await coord.async_fertilize_plant(plant_id)
+                elif action == "SNOOZE":
+                    await coord.async_snooze_plant(plant_id)
+                else:
+                    _LOGGER.debug(
+                        "Plant Care: unbekannte Action ignoriert: %s", action
+                    )
+                    return
+            except ValueError:
+                _LOGGER.debug(
+                    "Plant Care: Action %s für unbekannte Pflanze %s",
+                    action,
+                    plant_id,
+                )
+
+        hass.async_create_task(_dispatch())
+
+    unsub_action_listener = hass.bus.async_listen(
+        "mobile_app_notification_action", _handle_action_event
+    )
+    hass.data[DOMAIN]["unsub_action_listener"] = unsub_action_listener
+
     # Panel registrieren
     try:
         frontend.async_register_built_in_panel(
@@ -237,6 +283,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     cancel_tick = hass.data.get(DOMAIN, {}).get("cancel_tick")
     if cancel_tick is not None:
         cancel_tick()
+
+    unsub_action = hass.data.get(DOMAIN, {}).get("unsub_action_listener")
+    if unsub_action is not None:
+        unsub_action()
 
     try:
         frontend.async_remove_panel(hass, PANEL_FRONTEND_URL_PATH)

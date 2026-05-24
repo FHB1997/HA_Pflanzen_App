@@ -68,3 +68,7 @@ DEFAULT_NOTIFY_TITLE: Final = "Plant Care"
 
 # Wie oft scannt der Hintergrund-Job die Pflanzen?
 REMINDER_SCAN_INTERVAL_MINUTES: Final = 30
+
+# Actionable Notifications
+ACTION_ID_PREFIX: Final = "PLANTCARE"
+SNOOZE_DEFAULT_HOURS: Final = 24
