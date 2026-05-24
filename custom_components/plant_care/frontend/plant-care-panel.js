@@ -673,99 +673,113 @@ class PlantCarePanel extends HTMLElement {
       <form>
         ${mode === "add" && tab === "library" ? this._renderLibraryPicker() : ""}
 
-        ${tab === "ai" ? `
-          <div class="ai-row">
-            <label class="field">
-              <span>Name *</span>
-              <input name="name" value="${this._escapeAttr(draft.name || "")}" required autocomplete="off">
-            </label>
-            <button type="button" class="btn ${aiAvailable ? "" : "disabled"}" data-action="ai-suggest" ${!aiAvailable ? "disabled" : ""} title="${aiAvailable ? "" : "AI Task nicht eingerichtet"}">
-              ${this._aiBusy ? "⏳ ..." : "✨ KI-Vorschlag"}
-            </button>
-            ${aiAvailable ? `
-              <button type="button" class="btn" data-action="photo-identify" ${this._aiBusy ? "disabled" : ""}>
-                📷 Per Foto erkennen
-              </button>
-              <input type="file" accept="image/*" id="photo-identify-input" style="display:none">
-            ` : ""}
-          </div>
-        ` : ""}
-
-        ${tab === "ai" ? "" : `
+        <section class="form-section">
+          <header class="form-section-head">
+            <span class="form-section-label">Identifikation</span>
+          </header>
           <label class="field">
             <span>Name *</span>
             <input name="name" value="${this._escapeAttr(draft.name || "")}" required autocomplete="off">
           </label>
-        `}
-
-        ${this._renderLocationLightFields(draft)}
-
-        ${(draft.location_tips || draft.suitability_warning) ? `
-          <div class="location-tips-card">
-            ${draft.suitability_warning ? `
-              <div class="warning-banner inline">
-                <strong>⚠ Achtung</strong>
-                <p>${this._escape(draft.suitability_warning)}</p>
-              </div>
-            ` : ""}
-            ${draft.location_tips ? `
-              <div class="info-banner">
-                <strong>💡 Standort-Tipps</strong>
-                <p>${this._escape(draft.location_tips)}</p>
-              </div>
-            ` : ""}
-          </div>
-        ` : ""}
-
-        <div class="form-grid">
-          <label class="field">
-            <span>Spezies</span>
-            <input name="species" value="${this._escapeAttr(draft.species || "")}" autocomplete="off">
-          </label>
-          <label class="field">
-            <span>Trivialname</span>
-            <input name="common_name" value="${this._escapeAttr(draft.common_name || "")}" autocomplete="off">
-          </label>
-          <label class="field">
-            <span>Standort</span>
-            <input name="location" value="${this._escapeAttr(draft.location || "")}" autocomplete="off">
-          </label>
-          <label class="field">
-            <span>Gießintervall (Tage)</span>
-            <input name="water_days" type="number" min="1" max="90" value="${this._escapeAttr(draft.water_days || 7)}">
-          </label>
-          <label class="field">
-            <span>Düngeintervall (Tage)</span>
-            <input name="fertilize_days" type="number" min="1" max="180" value="${this._escapeAttr(draft.fertilize_days || 30)}">
-          </label>
-          <label class="field">
-            <span>Bodenfeuchte-Sensor (optional)</span>
-            <select name="moisture_sensor">
-              <option value="">– kein Sensor –</option>
-              ${sensors.map((s) => `
-                <option value="${this._escapeAttr(s.entity_id)}" ${draft.moisture_sensor === s.entity_id ? "selected" : ""}>
-                  ${this._escape(s.name)}
-                </option>
-              `).join("")}
-            </select>
-          </label>
-        </div>
-
-        <label class="field">
-          <span>Foto</span>
-          <input type="file" name="photo_file" accept="image/*">
-          ${draft.photo ? `
-            <div class="photo-preview">
-              <img src="${this._escapeAttr(draft.photo)}" alt="">
-              <button type="button" class="btn ghost small" data-action="clear-photo">Foto entfernen</button>
+          ${tab === "ai" ? `
+            <div class="ai-actions">
+              <button type="button" class="btn ${aiAvailable ? "" : "disabled"}" data-action="ai-suggest" ${!aiAvailable ? "disabled" : ""} title="${aiAvailable ? "" : "AI Task nicht eingerichtet"}">
+                ${this._aiBusy ? "⏳ …" : "✨ KI-Vorschlag"}
+              </button>
+              ${aiAvailable ? `
+                <button type="button" class="btn" data-action="photo-identify" ${this._aiBusy ? "disabled" : ""}>
+                  📷 Per Foto erkennen
+                </button>
+                <input type="file" accept="image/*" id="photo-identify-input" style="display:none">
+              ` : ""}
             </div>
           ` : ""}
-        </label>
+        </section>
 
-        <label class="field">
-          <span>Pflegetipps</span>
-          <textarea name="tips" rows="3">${this._escape(draft.tips || "")}</textarea>
-        </label>
+        <section class="form-section">
+          <header class="form-section-head">
+            <span class="form-section-label">📍 Standort</span>
+            <span class="form-section-hint">optional</span>
+          </header>
+          ${this._renderLocationLightFields(draft)}
+          <label class="field">
+            <span>Position (Detail)</span>
+            <input name="location" value="${this._escapeAttr(draft.location || "")}" autocomplete="off" placeholder="z.B. Fensterbank Nord">
+          </label>
+          ${(draft.location_tips || draft.suitability_warning) ? `
+            <div class="location-tips-card">
+              ${draft.suitability_warning ? `
+                <div class="warning-banner inline">
+                  <strong>⚠ Achtung</strong>
+                  <p>${this._escape(draft.suitability_warning)}</p>
+                </div>
+              ` : ""}
+              ${draft.location_tips ? `
+                <div class="info-banner">
+                  <strong>💡 Standort-Tipps</strong>
+                  <p>${this._escape(draft.location_tips)}</p>
+                </div>
+              ` : ""}
+            </div>
+          ` : ""}
+        </section>
+
+        <section class="form-section">
+          <header class="form-section-head">
+            <span class="form-section-label">💧 Pflege-Intervalle</span>
+          </header>
+          <div class="form-grid form-grid-3">
+            <label class="field">
+              <span>Gießen (Tage)</span>
+              <input name="water_days" type="number" min="1" max="90" value="${this._escapeAttr(draft.water_days || 7)}">
+            </label>
+            <label class="field">
+              <span>Düngen (Tage)</span>
+              <input name="fertilize_days" type="number" min="1" max="180" value="${this._escapeAttr(draft.fertilize_days || 30)}">
+            </label>
+            <label class="field">
+              <span>Bodenfeuchte-Sensor</span>
+              <select name="moisture_sensor">
+                <option value="">– kein Sensor –</option>
+                ${sensors.map((s) => `
+                  <option value="${this._escapeAttr(s.entity_id)}" ${draft.moisture_sensor === s.entity_id ? "selected" : ""}>
+                    ${this._escape(s.name)}
+                  </option>
+                `).join("")}
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <header class="form-section-head">
+            <span class="form-section-label">🌿 Pflanzen-Info</span>
+          </header>
+          <div class="form-grid form-grid-2">
+            <label class="field">
+              <span>Spezies</span>
+              <input name="species" value="${this._escapeAttr(draft.species || "")}" autocomplete="off" placeholder="z.B. Monstera deliciosa">
+            </label>
+            <label class="field">
+              <span>Trivialname</span>
+              <input name="common_name" value="${this._escapeAttr(draft.common_name || "")}" autocomplete="off" placeholder="z.B. Fensterblatt">
+            </label>
+          </div>
+          <label class="field">
+            <span>Foto</span>
+            <input type="file" name="photo_file" accept="image/*">
+            ${draft.photo ? `
+              <div class="photo-preview">
+                <img src="${this._escapeAttr(draft.photo)}" alt="">
+                <button type="button" class="btn ghost small" data-action="clear-photo">Foto entfernen</button>
+              </div>
+            ` : ""}
+          </label>
+          <label class="field">
+            <span>Pflegetipps</span>
+            <textarea name="tips" rows="3" placeholder="Freitext, von KI gefüllt oder selbst notiert">${this._escape(draft.tips || "")}</textarea>
+          </label>
+        </section>
 
         <div class="actions">
           <button type="submit" class="btn primary">Speichern</button>
@@ -784,9 +798,9 @@ class PlantCarePanel extends HTMLElement {
     const roomSelectValue = roomIsStandard ? roomValue : "__other__";
     const lightValue = draft.light_level || "";
     return `
-      <div class="form-grid location-grid">
+      <div class="form-grid form-grid-2 location-grid">
         <label class="field">
-          <span>📍 Raum (optional)</span>
+          <span>Raum</span>
           <select name="room_type_select" data-action="set-room">
             <option value="">– nicht angegeben –</option>
             ${Object.entries(ROOM_LABELS).map(([val, label]) => `
@@ -799,16 +813,16 @@ class PlantCarePanel extends HTMLElement {
           ` : ""}
         </label>
 
-        <fieldset class="field">
-          <legend>☀ Licht (optional)</legend>
+        <div class="field">
+          <span class="field-label">Lichtintensität</span>
           <div class="radio-group">
-            <label><input type="radio" name="light_level" value=""             ${lightValue === ""             ? "checked" : ""}> Weiß nicht</label>
-            <label><input type="radio" name="light_level" value="vollsonne"    ${lightValue === "vollsonne"    ? "checked" : ""}> ${this._escape(LIGHT_LABELS.vollsonne)}</label>
-            <label><input type="radio" name="light_level" value="hell"         ${lightValue === "hell"         ? "checked" : ""}> ${this._escape(LIGHT_LABELS.hell)}</label>
-            <label><input type="radio" name="light_level" value="halbschatten" ${lightValue === "halbschatten" ? "checked" : ""}> ${this._escape(LIGHT_LABELS.halbschatten)}</label>
-            <label><input type="radio" name="light_level" value="schatten"     ${lightValue === "schatten"     ? "checked" : ""}> ${this._escape(LIGHT_LABELS.schatten)}</label>
+            <label class="radio-pill"><input type="radio" name="light_level" value=""             ${lightValue === ""             ? "checked" : ""}><span>Weiß nicht</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="vollsonne"    ${lightValue === "vollsonne"    ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.vollsonne)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="hell"         ${lightValue === "hell"         ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.hell)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="halbschatten" ${lightValue === "halbschatten" ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.halbschatten)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="schatten"     ${lightValue === "schatten"     ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.schatten)}</span></label>
           </div>
-        </fieldset>
+        </div>
       </div>
     `;
   }
@@ -1872,26 +1886,34 @@ class PlantCarePanel extends HTMLElement {
         flex-wrap: wrap;
       }
 
-      .location-grid { margin-bottom: 12px; }
-      .location-grid .field legend {
-        font-size: 0.9rem;
-        margin-bottom: 4px;
-        color: var(--primary-text-color);
-        padding: 0;
-      }
+      .location-grid { margin-bottom: 8px; }
       .radio-group {
         display: flex;
         flex-direction: column;
-        gap: 4px;
-      }
-      .radio-group label {
-        display: flex;
         gap: 6px;
-        align-items: center;
-        font-size: 0.9rem;
-        cursor: pointer;
       }
-      .radio-group input[type="radio"] { accent-color: var(--sage); }
+      .radio-pill {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border: 1px solid var(--divider-color, rgba(255,255,255,0.1));
+        border-radius: 8px;
+        background: var(--secondary-background-color, rgba(255,255,255,0.02));
+        font-size: 0.88rem;
+        cursor: pointer;
+        transition: background .12s, border-color .12s;
+      }
+      .radio-pill:hover { border-color: var(--sage); }
+      .radio-pill:has(input:checked) {
+        background: rgba(126, 174, 110, 0.14);
+        border-color: var(--sage);
+      }
+      .radio-pill input[type="radio"] {
+        accent-color: var(--sage);
+        margin: 0;
+      }
+      .radio-pill span { line-height: 1.2; }
       .location-tips-card {
         margin: 12px 0;
         display: flex;
@@ -2120,24 +2142,63 @@ class PlantCarePanel extends HTMLElement {
       }
       .tab.active { border-bottom-color: var(--sage); color: var(--sage); font-weight: 600; }
 
-      .ai-row {
+      /* Form-Sections – setzen thematisch zusammengehörige Felder ab. */
+      .form-section {
+        position: relative;
+        padding: 16px 18px 4px;
+        margin-bottom: 14px;
+        background: var(--secondary-background-color, rgba(255,255,255,0.03));
+        border: 1px solid var(--divider-color, rgba(255,255,255,0.08));
+        border-radius: 10px;
+        border-left: 3px solid var(--sage);
+      }
+      .form-section-head {
         display: flex;
+        align-items: baseline;
         gap: 8px;
-        align-items: flex-end;
-        flex-wrap: wrap;
         margin-bottom: 12px;
       }
-      .ai-row .field { flex: 1 1 200px; }
+      .form-section-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--sage);
+      }
+      .form-section-hint {
+        font-size: 0.72rem;
+        color: var(--secondary-text-color, #777);
+        letter-spacing: 0.04em;
+      }
+
+      .ai-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 4px;
+      }
+
       .form-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 12px;
-        margin-bottom: 12px;
+        gap: 12px 14px;
+        margin-bottom: 4px;
       }
+      .form-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      @media (max-width: 640px) {
+        .form-grid-2, .form-grid-3 { grid-template-columns: 1fr; }
+      }
+
       .field {
         display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px;
+        min-width: 0;
       }
-      .field > span { font-size: 0.9rem; font-weight: 500; }
+      .field > span, .field-label {
+        font-size: 0.9rem;
+        font-weight: 500;
+        display: block;
+      }
       input, select, textarea {
         font-family: inherit;
         font-size: 1rem;
@@ -2190,7 +2251,12 @@ class PlantCarePanel extends HTMLElement {
       .lib-item strong { font-size: 0.95rem; }
 
       .actions {
-        display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--divider-color, rgba(255,255,255,0.08));
       }
       .actions .danger { margin-left: auto; }
 

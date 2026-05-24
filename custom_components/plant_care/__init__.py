@@ -68,7 +68,7 @@ ADD_PLANT_SCHEMA = vol.Schema(
         vol.Optional("fertilize_days", default=DEFAULT_FERTILIZE_DAYS): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=180)
         ),
-        vol.Optional("moisture_sensor"): vol.Any(None, cv.entity_id),
+        vol.Optional("moisture_sensor"): vol.Any(None, "", cv.entity_id),
         vol.Optional("photo", default=""): cv.string,
         vol.Optional("tips", default=""): cv.string,
         vol.Optional("light_level", default=""): vol.In(["", *LIGHT_LEVELS]),
@@ -87,7 +87,7 @@ UPDATE_PLANT_SCHEMA = vol.Schema(
         vol.Optional("location"): cv.string,
         vol.Optional("water_days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
         vol.Optional("fertilize_days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=180)),
-        vol.Optional("moisture_sensor"): vol.Any(None, cv.entity_id),
+        vol.Optional("moisture_sensor"): vol.Any(None, "", cv.entity_id),
         vol.Optional("photo"): cv.string,
         vol.Optional("tips"): cv.string,
         vol.Optional("light_level"): vol.In(["", *LIGHT_LEVELS]),
