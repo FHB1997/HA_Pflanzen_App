@@ -29,6 +29,7 @@ from .const import (
     DEFAULT_FERTILIZE_DAYS,
     DEFAULT_WATER_DAYS,
     DOMAIN,
+    LIGHT_LEVELS,
     PANEL_FRONTEND_URL_PATH,
     PANEL_ICON,
     PANEL_MODULE_URL,
@@ -66,6 +67,10 @@ ADD_PLANT_SCHEMA = vol.Schema(
         vol.Optional("moisture_sensor"): vol.Any(None, cv.entity_id),
         vol.Optional("photo", default=""): cv.string,
         vol.Optional("tips", default=""): cv.string,
+        vol.Optional("light_level", default=""): vol.In(["", *LIGHT_LEVELS]),
+        vol.Optional("room_type", default=""): cv.string,
+        vol.Optional("location_tips", default=""): cv.string,
+        vol.Optional("suitability_warning", default=""): cv.string,
     }
 )
 
@@ -81,6 +86,10 @@ UPDATE_PLANT_SCHEMA = vol.Schema(
         vol.Optional("moisture_sensor"): vol.Any(None, cv.entity_id),
         vol.Optional("photo"): cv.string,
         vol.Optional("tips"): cv.string,
+        vol.Optional("light_level"): vol.In(["", *LIGHT_LEVELS]),
+        vol.Optional("room_type"): cv.string,
+        vol.Optional("location_tips"): cv.string,
+        vol.Optional("suitability_warning"): cv.string,
     }
 )
 

@@ -72,3 +72,15 @@ REMINDER_SCAN_INTERVAL_MINUTES: Final = 30
 # Actionable Notifications
 ACTION_ID_PREFIX: Final = "PLANTCARE"
 SNOOZE_DEFAULT_HOURS: Final = 24
+
+# Standort/Licht (Sprint 6)
+LIGHT_LEVELS: Final = ("vollsonne", "hell", "halbschatten", "schatten")
+ROOM_TYPES: Final = (
+    "wohnzimmer",
+    "schlafzimmer",
+    "kueche",
+    "bad",
+    "buero",
+    "flur",
+    "kinderzimmer",
+)

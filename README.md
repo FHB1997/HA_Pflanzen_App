@@ -48,6 +48,20 @@ Nach der Installation erscheint **Plant Care** in der Sidebar.
 3. Optional: Foto hochladen, Moisture-Sensor verknüpfen, Tipps anpassen
 4. **Speichern**
 
+### Standort-Q&A
+
+Beim Anlegen kannst du optional **Raum** (Dropdown) und
+**Lichtintensität** angeben. Beide Werte fließen in den KI-Vorschlag
+ein → die KI passt Gieß- und Düngeintervalle daran an und gibt
+zusätzlich Standort-spezifische Tipps zurück. Wenn der gewählte
+Standort für die Pflanze ungeeignet ist (z.B. Sukkulente im dunklen
+Bad), zeigt der Detail-View oben ein oranges Warnbanner, das du per
+✕-Tap ausblenden kannst.
+
+Beide Felder sind optional – Q&A leer lassen funktioniert wie vorher.
+Bei späterem Umzug: Felder im Edit-Form ändern, dann KI-Vorschlag
+erneut tippen für aktualisierte Intervalle.
+
 ### Pflanze per Foto erkennen (ab HA 2025.7)
 
 Im Add-Form auf **📷 Per Foto erkennen** klicken → Foto aufnehmen oder hochladen → die KI identifiziert die Art und schlägt Pflegeintervalle vor.

@@ -23,6 +23,23 @@ const STATUS_CLASS = {
 
 const ROOM_ALL = "__all__";
 
+const ROOM_LABELS = {
+  wohnzimmer: "Wohnzimmer",
+  schlafzimmer: "Schlafzimmer",
+  kueche: "Küche",
+  bad: "Bad",
+  buero: "Büro",
+  flur: "Flur",
+  kinderzimmer: "Kinderzimmer",
+};
+
+const LIGHT_LABELS = {
+  vollsonne: "Vollsonne (Südfenster)",
+  hell: "Hell (am Fenster, nicht direkt)",
+  halbschatten: "Halbschatten (1-2m vom Fenster)",
+  schatten: "Schatten (weit vom Fenster)",
+};
+
 let _libraryCache = null;
 
 class PlantCarePanel extends HTMLElement {
@@ -182,6 +199,24 @@ class PlantCarePanel extends HTMLElement {
     };
   }
 
+  _suggestStructureWithLocation() {
+    return {
+      ...this._suggestStructure(),
+      location_tips: { selector: { text: { multiline: true } } },
+      suitability_warning: { selector: { text: { multiline: true } } },
+    };
+  }
+
+  _qaContextString(draft) {
+    const room = draft.room_type
+      ? (ROOM_LABELS[draft.room_type] || draft.room_type)
+      : "nicht angegeben";
+    const light = draft.light_level
+      ? (LIGHT_LABELS[draft.light_level] || draft.light_level)
+      : "nicht angegeben";
+    return `\n- Standort: ${room}\n- Lichtintensität: ${light}`;
+  }
+
   async _aiSuggestFromName(name) {
     if (!name || !name.trim()) {
       this._showToast("error", "Bitte zuerst einen Namen eingeben");
@@ -202,10 +237,16 @@ class PlantCarePanel extends HTMLElement {
           entity_id: aiEntity,
           task_name: "plant_care_suggest",
           instructions:
-            `Du bist Botaniker. Für die Zimmerpflanze "${name}": ` +
-            `Gib Spezies (botanisch), deutschen Trivialnamen, empfohlene Gieß- und Düngeintervalle ` +
-            `in Tagen sowie kurze Pflegetipps zurück. Antworte ausschließlich im vorgegebenen JSON-Schema.`,
-          structure: this._suggestStructure(),
+            `Du bist Botaniker. Für die Zimmerpflanze "${name}":` +
+            this._qaContextString(this._draft || {}) +
+            `\n\nGib zurück:\n` +
+            `- Spezies (botanisch), deutscher Trivialname\n` +
+            `- Gieß- und Düngeintervalle in Tagen, passend zum genannten Licht-Level (bei wenig Licht seltener, bei Vollsonne öfter)\n` +
+            `- Allgemeine Pflegetipps\n` +
+            `- Standort-spezifische Tipps (was ist beim genannten Raum + Licht zu beachten?)\n` +
+            `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung. Sonst leeres Feld.\n` +
+            `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
+          structure: this._suggestStructureWithLocation(),
         },
       );
       const data = res?.data ?? res?.response?.data ?? res ?? {};
@@ -236,10 +277,12 @@ class PlantCarePanel extends HTMLElement {
           entity_id: aiEntity,
           task_name: "plant_care_identify_from_photo",
           instructions:
-            "Welche Zimmerpflanze ist auf dem angehängten Bild zu sehen? " +
-            "Gib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, " +
-            "empfohlene Gieß- und Düngeintervalle in Tagen sowie kurze Pflegetipps. " +
-            "Antworte ausschließlich im vorgegebenen JSON-Schema.",
+            `Welche Zimmerpflanze ist auf dem angehängten Bild zu sehen?` +
+            this._qaContextString(this._draft || {}) +
+            `\n\nGib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, ` +
+            `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level, ` +
+            `Pflegetipps generell, Standort-spezifische Tipps und (falls Standort ungeeignet) eine kurze Begründung. ` +
+            `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           attachments: [
             {
               media_content_id: uploadResult.media_content_id,
@@ -247,7 +290,7 @@ class PlantCarePanel extends HTMLElement {
             },
           ],
           structure: {
-            ...this._suggestStructure(),
+            ...this._suggestStructureWithLocation(),
             confidence: { selector: { number: { min: 0, max: 1 } } },
           },
         },
@@ -647,6 +690,25 @@ class PlantCarePanel extends HTMLElement {
           </label>
         `}
 
+        ${this._renderLocationLightFields(draft)}
+
+        ${(draft.location_tips || draft.suitability_warning) ? `
+          <div class="location-tips-card">
+            ${draft.suitability_warning ? `
+              <div class="warning-banner inline">
+                <strong>⚠ Achtung</strong>
+                <p>${this._escape(draft.suitability_warning)}</p>
+              </div>
+            ` : ""}
+            ${draft.location_tips ? `
+              <div class="info-banner">
+                <strong>💡 Standort-Tipps</strong>
+                <p>${this._escape(draft.location_tips)}</p>
+              </div>
+            ` : ""}
+          </div>
+        ` : ""}
+
         <div class="form-grid">
           <label class="field">
             <span>Spezies</span>
@@ -708,6 +770,41 @@ class PlantCarePanel extends HTMLElement {
     `;
   }
 
+  _renderLocationLightFields(draft) {
+    const roomValue = draft.room_type || "";
+    const roomIsStandard = !roomValue || Object.prototype.hasOwnProperty.call(ROOM_LABELS, roomValue);
+    const roomSelectValue = roomIsStandard ? roomValue : "__other__";
+    const lightValue = draft.light_level || "";
+    return `
+      <div class="form-grid location-grid">
+        <label class="field">
+          <span>📍 Raum (optional)</span>
+          <select name="room_type_select" data-action="set-room">
+            <option value="">– nicht angegeben –</option>
+            ${Object.entries(ROOM_LABELS).map(([val, label]) => `
+              <option value="${this._escapeAttr(val)}" ${roomSelectValue === val ? "selected" : ""}>${this._escape(label)}</option>
+            `).join("")}
+            <option value="__other__" ${roomSelectValue === "__other__" ? "selected" : ""}>Andere…</option>
+          </select>
+          ${roomSelectValue === "__other__" ? `
+            <input name="room_type_other" type="text" placeholder="Raum-Bezeichnung" value="${this._escapeAttr(roomValue)}" autocomplete="off">
+          ` : ""}
+        </label>
+
+        <fieldset class="field">
+          <legend>☀ Licht (optional)</legend>
+          <div class="radio-group">
+            <label><input type="radio" name="light_level" value=""             ${lightValue === ""             ? "checked" : ""}> Weiß nicht</label>
+            <label><input type="radio" name="light_level" value="vollsonne"    ${lightValue === "vollsonne"    ? "checked" : ""}> ${this._escape(LIGHT_LABELS.vollsonne)}</label>
+            <label><input type="radio" name="light_level" value="hell"         ${lightValue === "hell"         ? "checked" : ""}> ${this._escape(LIGHT_LABELS.hell)}</label>
+            <label><input type="radio" name="light_level" value="halbschatten" ${lightValue === "halbschatten" ? "checked" : ""}> ${this._escape(LIGHT_LABELS.halbschatten)}</label>
+            <label><input type="radio" name="light_level" value="schatten"     ${lightValue === "schatten"     ? "checked" : ""}> ${this._escape(LIGHT_LABELS.schatten)}</label>
+          </div>
+        </fieldset>
+      </div>
+    `;
+  }
+
   _renderLibraryPicker() {
     const lib = _libraryCache;
     if (lib === null) {
@@ -744,6 +841,7 @@ class PlantCarePanel extends HTMLElement {
 
     return `
       <article class="detail">
+        ${this._renderSuitabilityWarning(p)}
         <header class="detail-header">
           <div class="detail-photo">
             ${p.photo
@@ -788,6 +886,8 @@ class PlantCarePanel extends HTMLElement {
           ` : ""}
         </section>
 
+        ${this._renderLocationSection(p)}
+
         ${p.tips ? `
           <section class="tips">
             <h3>Pflegetipps</h3>
@@ -797,6 +897,41 @@ class PlantCarePanel extends HTMLElement {
 
         ${this._renderHistorySection(p)}
       </article>
+    `;
+  }
+
+  _renderLocationSection(p) {
+    const room = p.room_type ? (ROOM_LABELS[p.room_type] || p.room_type) : "";
+    const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
+    const position = p.location || "";
+    if (!room && !light && !position && !p.location_tips) return "";
+    const facts = [
+      room ? `Raum: ${room}` : "",
+      light ? `Licht: ${light}` : "",
+      position ? `Position: ${position}` : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <section class="location-section">
+        <h3>📍 Standort</h3>
+        ${facts ? `<p class="muted small">${this._escape(facts)}</p>` : ""}
+        ${p.location_tips ? `
+          <div class="info-banner">
+            <strong>💡 Standort-Tipps</strong>
+            <p>${this._escape(p.location_tips)}</p>
+          </div>
+        ` : ""}
+      </section>
+    `;
+  }
+
+  _renderSuitabilityWarning(p) {
+    if (!p.suitability_warning) return "";
+    return `
+      <div class="warning-banner detail-warning">
+        <button class="warning-dismiss" data-action="dismiss-warning" data-id="${this._escapeAttr(p.plant_id)}" aria-label="Warnung ausblenden">✕</button>
+        <strong>⚠ Achtung</strong>
+        <p>${this._escape(p.suitability_warning)}</p>
+      </div>
     `;
   }
 
@@ -890,6 +1025,14 @@ class PlantCarePanel extends HTMLElement {
         this._setState({});
         break;
       }
+      case "dismiss-warning":
+        this._callService("plant_care", "update_plant", {
+          plant_id: id,
+          suitability_warning: "",
+        })
+          .then(() => this._showToast("success", "Warnung ausgeblendet"))
+          .catch((err) => this._showToast("error", this._fmtErr(err)));
+        break;
       case "bulk-water":
         this._executeBulkAction("water_plant");
         break;
@@ -1003,6 +1146,23 @@ class PlantCarePanel extends HTMLElement {
     if (t.name === "moisture_sensor") {
       this._draft = { ...(this._draft || {}), moisture_sensor: t.value };
     }
+    if (t.dataset && t.dataset.action === "set-room") {
+      const val = t.value;
+      if (val === "__other__") {
+        this._draft = { ...(this._draft || {}), room_type: this._draft?.room_type || "" };
+      } else {
+        this._draft = { ...(this._draft || {}), room_type: val };
+      }
+      this._render();
+      return;
+    }
+    if (t.name === "room_type_other") {
+      this._draft = { ...(this._draft || {}), room_type: t.value };
+      return; // Kein Re-Render – sonst Cursor weg
+    }
+    if (t.name === "light_level") {
+      this._draft = { ...(this._draft || {}), light_level: t.value };
+    }
   }
 
   async _onSubmit(evt) {
@@ -1027,6 +1187,24 @@ class PlantCarePanel extends HTMLElement {
         data[k] = parseInt(data[k], 10);
       }
     }
+    // Room aus Dropdown/Other-Input zusammenführen
+    const roomSelect = formData.get("room_type_select");
+    if (roomSelect === "__other__") {
+      data.room_type = (formData.get("room_type_other") || "").toString();
+    } else if (roomSelect !== null) {
+      data.room_type = roomSelect.toString();
+    }
+    delete data.room_type_select;
+    delete data.room_type_other;
+
+    // Q&A-AI-Resultate aus dem Draft übernehmen
+    if (this._draft && "location_tips" in this._draft) {
+      data.location_tips = this._draft.location_tips || "";
+    }
+    if (this._draft && "suitability_warning" in this._draft) {
+      data.suitability_warning = this._draft.suitability_warning || "";
+    }
+
     // Photo aus Draft übernehmen. Im Edit-Mode bedeutet draft.photo === ""
     // explizit "Foto entfernen".
     if (this._draft && "photo" in this._draft) {
@@ -1295,6 +1473,72 @@ class PlantCarePanel extends HTMLElement {
         gap: 8px;
         flex-wrap: wrap;
       }
+
+      .location-grid { margin-bottom: 12px; }
+      .location-grid .field legend {
+        font-size: 0.9rem;
+        margin-bottom: 4px;
+        color: var(--primary-text-color);
+        padding: 0;
+      }
+      .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .radio-group label {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 0.9rem;
+        cursor: pointer;
+      }
+      .radio-group input[type="radio"] { accent-color: var(--sage); }
+      .location-tips-card {
+        margin: 12px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .info-banner,
+      .warning-banner {
+        border-radius: 8px;
+        padding: 10px 12px;
+      }
+      .info-banner {
+        background: rgba(126, 174, 110, 0.12);
+        border-left: 3px solid var(--sage);
+      }
+      .info-banner strong { display: block; margin-bottom: 4px; }
+      .info-banner p { margin: 0; white-space: pre-wrap; }
+      .warning-banner {
+        background: rgba(245, 158, 11, 0.12);
+        border-left: 3px solid #f59e0b;
+      }
+      .warning-banner strong { display: block; margin-bottom: 4px; color: #b45309; }
+      .warning-banner p { margin: 0; white-space: pre-wrap; }
+      .location-section {
+        margin-bottom: 20px;
+      }
+      .location-section h3 { margin: 0 0 6px; font-size: 1rem; }
+      .detail-warning {
+        position: relative;
+        margin-bottom: 16px;
+      }
+      .warning-dismiss {
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        background: none;
+        border: none;
+        font-size: 1rem;
+        cursor: pointer;
+        color: var(--secondary-text-color, #777);
+        line-height: 1;
+        padding: 4px 6px;
+      }
+      .warning-dismiss:hover { color: var(--primary-text-color); }
+
       .thumb {
         width: 100%;
         aspect-ratio: 16 / 10;

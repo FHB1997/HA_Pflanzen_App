@@ -87,6 +87,10 @@ class PlantCareCoordinator:
             plant.setdefault("water_days", DEFAULT_WATER_DAYS)
             plant.setdefault("fertilize_days", DEFAULT_FERTILIZE_DAYS)
             plant.setdefault("last_notified", None)
+            plant.setdefault("light_level", "")
+            plant.setdefault("room_type", "")
+            plant.setdefault("location_tips", "")
+            plant.setdefault("suitability_warning", "")
         self._plants = plants
 
         migrated = await self._migrate_data_url_photos()
@@ -177,6 +181,10 @@ class PlantCareCoordinator:
             "moisture_sensor": cleaned.get("moisture_sensor"),
             "photo": cleaned.get("photo", ""),
             "tips": cleaned.get("tips", ""),
+            "light_level": cleaned.get("light_level", ""),
+            "room_type": cleaned.get("room_type", ""),
+            "location_tips": cleaned.get("location_tips", ""),
+            "suitability_warning": cleaned.get("suitability_warning", ""),
             "last_watered": cleaned.get("last_watered"),
             "last_fertilized": cleaned.get("last_fertilized"),
             "water_history": [],

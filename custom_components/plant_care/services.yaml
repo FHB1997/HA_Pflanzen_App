@@ -59,6 +59,33 @@ add_plant:
       selector:
         text:
           multiline: true
+    light_level:
+      name: Lichtintensität
+      description: vollsonne / hell / halbschatten / schatten
+      selector:
+        select:
+          options:
+            - vollsonne
+            - hell
+            - halbschatten
+            - schatten
+    room_type:
+      name: Raum
+      description: Strukturierter Raum-Typ (Wohnzimmer, Schlafzimmer, …).
+      selector:
+        text:
+    location_tips:
+      name: Standort-Tipps
+      description: Optional, wird normalerweise von der KI gefüllt.
+      selector:
+        text:
+          multiline: true
+    suitability_warning:
+      name: Eignungs-Warnung
+      description: Optional, wird normalerweise von der KI gefüllt.
+      selector:
+        text:
+          multiline: true
 
 update_plant:
   name: Pflanze aktualisieren
@@ -102,6 +129,25 @@ update_plant:
         text:
           multiline: true
     tips:
+      selector:
+        text:
+          multiline: true
+    light_level:
+      selector:
+        select:
+          options:
+            - vollsonne
+            - hell
+            - halbschatten
+            - schatten
+    room_type:
+      selector:
+        text:
+    location_tips:
+      selector:
+        text:
+          multiline: true
+    suitability_warning:
       selector:
         text:
           multiline: true
