@@ -74,6 +74,19 @@ selektiert/deselektiert. In der Bottom-Bar **💧 Gegossen** oder
 Bestätigungs-Dialog. Die "Alle"-Checkbox in der Bar bezieht sich auf
 die aktuell sichtbaren Pflanzen (Raum-Filter wird respektiert).
 
+### Kalender / Agenda
+
+Im Panel oben rechts auf **📅 Kalender** tappen → chronologische Liste
+aller anstehenden Pflege-Termine der nächsten 14 Tage, gruppiert nach
+Tag. **HEUTE/MORGEN** sind hervorgehoben, überfällige Termine bekommen
+einen orangenen Akzent. Für heute fällige und überfällige Pflanzen gibt
+es einen direkten **✓**-Button zum Quittieren. "Mehr anzeigen" erweitert
+den Zeitraum um jeweils 14 Tage.
+
+Parallel registriert die Integration eine Calendar-Entity
+`calendar.plant_care` — du kannst sie mit HA's Built-in Calendar-Card auf
+jedem Dashboard zeigen.
+
 ### Foto-Verlauf
 
 Im Detail-View einer Pflanze findest du den **📸 Foto-Verlauf** mit
@@ -116,8 +129,11 @@ Eine zentrale Konfiguration, gilt für **alle** Pflanzen, ohne Automation pro Pf
 
 1. **Einstellungen → Geräte & Dienste → Plant Care → ⚙ Konfigurieren**
 2. **Erinnerungen aktivieren** anhaken
-3. **Notify-Service** eintragen (z.B. `notify.mobile_app_iphone`,
-   `notify.notify`, `notify.telegram_bot_123`)
+3. **Notify-Service(s)** eintragen. Mehrere Geräte/Kanäle gleichzeitig
+   per Komma trennen (z.B.
+   `notify.mobile_app_iphone, notify.mobile_app_ipad, notify.telegram_bot`).
+   Jede Notification wird an alle Targets parallel verschickt; Mobile-App-
+   Targets bekommen automatisch die Action-Buttons.
 4. Optional: Titel, Ruhezeiten, Mindestabstand zwischen Erinnerungen
 5. Speichern
 

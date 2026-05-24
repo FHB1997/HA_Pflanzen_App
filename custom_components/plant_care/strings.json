@@ -17,7 +17,7 @@
         "description": "Automatic reminders when a plant needs water or fertilizer. Leave the notify service empty to disable.",
         "data": {
           "reminders_enabled": "Enable reminders",
-          "notify_service": "Notify service (e.g. notify.mobile_app_iphone)",
+          "notify_service": "Notify service(s) – comma-separated for multiple (e.g. notify.mobile_app_iphone, notify.mobile_app_ipad)",
           "notify_title": "Notification title",
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",

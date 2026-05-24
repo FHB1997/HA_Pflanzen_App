@@ -115,6 +115,25 @@ def parse_action_id(action_id: str) -> tuple[str, str] | None:
     return (parts[1], parts[2])
 
 
+def parse_notify_targets(value: str | None) -> list[tuple[str, str]]:
+    """Parst ein Komma-separates Notify-Target-Feld.
+
+    ``"notify.foo, notify.bar"`` → ``[("notify", "foo"), ("notify", "bar")]``.
+    Leere und Einträge ohne ``.`` werden silent verworfen.
+    """
+    if not value:
+        return []
+    targets: list[tuple[str, str]] = []
+    for raw in value.split(","):
+        cleaned = raw.strip()
+        if not cleaned or "." not in cleaned:
+            continue
+        domain, service = cleaned.split(".", 1)
+        if domain and service:
+            targets.append((domain, service))
+    return targets
+
+
 def generate_care_events(
     plant: dict[str, Any],
     start: datetime,

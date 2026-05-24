@@ -20,6 +20,7 @@ from _utils import (  # type: ignore[import-not-found]
     needs_time_based,
     parse_action_id,
     parse_iso,
+    parse_notify_targets,
     parse_time_string,
     parse_treatment_action_id,
     sort_photos,
@@ -474,6 +475,37 @@ def test_generate_care_events_limits_per_kind():
     )
     water = [e for e in events if e["kind"] == "water"]
     assert len(water) == 5
+
+
+# --------------------------- parse_notify_targets ---------------------------
+
+def test_parse_notify_targets_empty():
+    assert parse_notify_targets("") == []
+    assert parse_notify_targets(None) == []
+
+
+def test_parse_notify_targets_single():
+    assert parse_notify_targets("notify.mobile_app_iphone") == [
+        ("notify", "mobile_app_iphone"),
+    ]
+
+
+def test_parse_notify_targets_multiple_comma_separated():
+    result = parse_notify_targets("notify.mobile_app_iphone, notify.mobile_app_ipad")
+    assert result == [
+        ("notify", "mobile_app_iphone"),
+        ("notify", "mobile_app_ipad"),
+    ]
+
+
+def test_parse_notify_targets_strips_whitespace_and_skips_invalid():
+    result = parse_notify_targets(" notify.foo , bogus_no_dot , notify.bar ,,")
+    assert result == [("notify", "foo"), ("notify", "bar")]
+
+
+def test_parse_notify_targets_supports_persistent_notification():
+    result = parse_notify_targets("notify.persistent, notify.telegram")
+    assert result == [("notify", "persistent"), ("notify", "telegram")]
 
 
 def test_utcnow_iso_returns_parseable_utc_string():

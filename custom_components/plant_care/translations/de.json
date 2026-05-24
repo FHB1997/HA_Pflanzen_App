@@ -17,7 +17,7 @@
         "description": "Automatische Benachrichtigungen, wenn eine Pflanze Wasser oder Dünger braucht. Leerer Notify-Service deaktiviert das Feature.",
         "data": {
           "reminders_enabled": "Erinnerungen aktivieren",
-          "notify_service": "Notify-Service (z.B. notify.mobile_app_iphone)",
+          "notify_service": "Notify-Service(s) – mehrere mit Komma trennen (z.B. notify.mobile_app_iphone, notify.mobile_app_ipad)",
           "notify_title": "Titel der Benachrichtigung",
           "quiet_hours_start": "Beginn Ruhezeit",
           "quiet_hours_end": "Ende Ruhezeit",

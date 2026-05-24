@@ -23,6 +23,7 @@ from ._utils import (
     is_rate_limited,
     migrate_legacy_photo,
     parse_iso,
+    parse_notify_targets,
     parse_time_string,
     sort_photos,
     utcnow_iso,
@@ -567,7 +568,8 @@ class PlantCareCoordinator:
         notify_service_full = (options.get(CONF_NOTIFY_SERVICE) or "").strip()
         enabled = options.get(CONF_REMINDERS_ENABLED, False)
 
-        if not notify_service_full or "." not in notify_service_full:
+        notify_targets = parse_notify_targets(notify_service_full)
+        if not notify_targets:
             if force:
                 _LOGGER.warning(
                     "Plant Care: notify_service ist nicht konfiguriert"
@@ -576,7 +578,6 @@ class PlantCareCoordinator:
         if not enabled and not force:
             return 0
 
-        notify_domain, notify_service = notify_service_full.split(".", 1)
         title = options.get(CONF_NOTIFY_TITLE) or DEFAULT_NOTIFY_TITLE
 
         now_utc = datetime.now(timezone.utc)
@@ -614,36 +615,48 @@ class PlantCareCoordinator:
 
             name = plant.get("name") or plant_id
             message = _build_reminder_message(name, state.state)
-            payload: dict[str, Any] = {"title": title, "message": message}
+            base_payload: dict[str, Any] = {"title": title, "message": message}
 
-            if _is_mobile_app_service(notify_service):
-                open_treatment_id: str | None = None
-                if state.state == STATUS_NEEDS_ATTENTION:
-                    open_t = filter_open_treatments(plant.get("treatments") or [])
-                    if open_t:
-                        open_treatment_id = open_t[0].get("id")
-                payload["data"] = {
-                    "actions": _build_notification_actions(
-                        plant_id, state.state, open_treatment_id
-                    ),
-                    "tag": f"plant_care_{plant_id}",
-                    "group": "plant_care",
-                }
+            # Mobile-App-Actions-Block einmal pro Plant berechnen.
+            mobile_payload: dict[str, Any] | None = None
+            open_treatment_id: str | None = None
+            if state.state == STATUS_NEEDS_ATTENTION:
+                open_t = filter_open_treatments(plant.get("treatments") or [])
+                if open_t:
+                    open_treatment_id = open_t[0].get("id")
+            mobile_data = {
+                "actions": _build_notification_actions(
+                    plant_id, state.state, open_treatment_id
+                ),
+                "tag": f"plant_care_{plant_id}",
+                "group": "plant_care",
+            }
 
-            try:
-                await self.hass.services.async_call(
-                    notify_domain,
-                    notify_service,
-                    payload,
-                    blocking=False,
-                )
-            except Exception as err:  # noqa: BLE001 – pro Pflanze isolieren
-                _LOGGER.warning(
-                    "Plant Care: notify %s.%s fehlgeschlagen: %s",
-                    notify_domain,
-                    notify_service,
-                    err,
-                )
+            # An jedes konfigurierte Target separat senden.
+            # Pro-Target-Fehler werden isoliert geloggt; ein erfolgreicher
+            # Versand reicht, damit last_notified gesetzt wird.
+            any_success = False
+            for notify_domain, notify_service in notify_targets:
+                payload = dict(base_payload)
+                if _is_mobile_app_service(notify_service):
+                    payload["data"] = mobile_data
+                try:
+                    await self.hass.services.async_call(
+                        notify_domain,
+                        notify_service,
+                        payload,
+                        blocking=False,
+                    )
+                    any_success = True
+                except Exception as err:  # noqa: BLE001 – pro Target isolieren
+                    _LOGGER.warning(
+                        "Plant Care: notify %s.%s fehlgeschlagen: %s",
+                        notify_domain,
+                        notify_service,
+                        err,
+                    )
+
+            if not any_success:
                 continue
 
             plant["last_notified"] = now_utc.isoformat()
