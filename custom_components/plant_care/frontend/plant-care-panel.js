@@ -1421,6 +1421,9 @@ class PlantCarePanel extends HTMLElement {
       case "edit": {
         const p = this._plantById(id);
         if (p) {
+          // Alle persistierten Felder in den Draft kopieren, damit das
+          // Edit-Form keine Werte verliert und die Q&A-/Tips-Banner
+          // korrekt vorbelegt sind.
           this._draft = {
             name: p.name,
             species: p.species,
@@ -1431,6 +1434,10 @@ class PlantCarePanel extends HTMLElement {
             moisture_sensor: p.moisture_sensor,
             photo: p.photo,
             tips: p.tips,
+            light_level: p.light_level || "",
+            room_type: p.room_type || "",
+            location_tips: p.location_tips || "",
+            suitability_warning: p.suitability_warning || "",
           };
           this._setState({ _view: "edit", _selectedId: id });
         }
