@@ -78,6 +78,22 @@ Plant Care prüft jede Pflanze alle 30 Minuten. Bei Status `needs_water` /
 `needs_fertilizer` / `needs_both` außerhalb der Ruhezeit und außerhalb des
 Rate-Limit-Fensters wird eine Benachrichtigung versendet.
 
+### Actionable Notifications (HA-Mobile-App)
+
+Wenn dein `notify_service` ein HA-Mobile-App-Target ist (Pattern
+`notify.mobile_app_*`), bekommt jede Reminder-Notification Action-Buttons
+direkt im Notification-Center:
+
+- **💧 Gegossen** → markiert die Pflanze als gegossen, ohne in HA zu wechseln
+- **🌱 Gedüngt** → analog für Dünger (nur wenn fällig)
+- **💤 Snooze 1d** → verzögert die nächste Notification um mindestens 24 h.
+  Der Pflanzen-Status im Panel bleibt unverändert (rot); nur die
+  Notification wird unterdrückt.
+
+Andere Notify-Services (Telegram, Persistent Notification, …) bekommen
+die Notification ohne Buttons – Plant Care fällt automatisch auf
+Plain-Notify zurück.
+
 Manuelle Auslösung jederzeit über den Service **`plant_care.send_reminders`**:
 
 ```yaml
