@@ -28,6 +28,15 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant. Plant Care besteht aus e
 - Für KI-Funktionen: HA **2025.7+** mit konfiguriertem AI Task (Anthropic, OpenAI, Gemini oder Ollama)
 - Optional: Bodenfeuchte-Sensor mit `device_class: moisture` oder `unit_of_measurement: %`
 
+## Sprache / Language
+
+Das Sidebar-Panel ist derzeit nur auf Deutsch verfügbar. Config-Flow und
+Services nutzen HA-Translations (`de` / `en`); das Panel-UI selbst ist
+noch nicht lokalisiert.
+
+> *The sidebar panel UI is currently German-only. The integration's
+> config flow and service descriptions are translated (`de` / `en`).*
+
 ## Bedienung
 
 Nach der Installation erscheint **Plant Care** in der Sidebar.

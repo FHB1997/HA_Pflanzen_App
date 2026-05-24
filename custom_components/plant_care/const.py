@@ -37,8 +37,9 @@ PHOTOS_DIRNAME: Final = "plant_care_photos"
 PHOTOS_URL_PATH: Final = "/api/plant_care/photos"
 UPLOAD_URL_PATH: Final = "/api/plant_care/upload"
 
-# History
-HISTORY_MAX_ENTRIES: Final = 50
+# History – muss zum Chart-Span im Frontend passen (plant-care-panel.js
+# CHART_DAY_SPAN). Bei einem Event/Tag deckt 90 die volle Chart-Breite ab.
+HISTORY_MAX_ENTRIES: Final = 90
 
 # Service-Namen
 SERVICE_ADD_PLANT: Final = "add_plant"

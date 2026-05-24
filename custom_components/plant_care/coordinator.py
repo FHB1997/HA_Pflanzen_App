@@ -1,6 +1,7 @@
 """Coordinator: Datenhaltung und Persistenz für Plant Care."""
 from __future__ import annotations
 
+import base64
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -10,25 +11,23 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
+from ._utils import clean_data, utcnow_iso
 from .const import (
     DEFAULT_FERTILIZE_DAYS,
     DEFAULT_WATER_DAYS,
     HISTORY_MAX_ENTRIES,
+    PHOTOS_URL_PATH,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+from .http import get_photos_dir
 
 _LOGGER = logging.getLogger(__name__)
 
 SAVE_DELAY_SECONDS = 1.0
-
-
-def _utcnow_iso() -> str:
-    """Aktueller UTC-Zeitstempel als ISO-8601 String."""
-    return datetime.now(timezone.utc).isoformat()
 
 
 class PlantCareCoordinator:
@@ -56,7 +55,63 @@ class PlantCareCoordinator:
             plant.setdefault("water_days", DEFAULT_WATER_DAYS)
             plant.setdefault("fertilize_days", DEFAULT_FERTILIZE_DAYS)
         self._plants = plants
+
+        migrated = await self._migrate_data_url_photos()
+        if migrated:
+            await self._async_save_now()
+            _LOGGER.info(
+                "Plant Care: %d data-URL-Fotos zu Dateien migriert", migrated
+            )
+
         _LOGGER.info("Plant Care: %d Pflanzen geladen", len(self._plants))
+
+    async def _migrate_data_url_photos(self) -> int:
+        """Wandelt legacy ``data:image/...``-Fotos in echte Dateien um.
+
+        Frühere Versionen haben Fotos als Base64-data-URL direkt im Plant-Dict
+        abgelegt. Das bläst das Storage-JSON unnötig auf. Beim Laden werden
+        diese Einträge einmalig in das Foto-Verzeichnis ausgelagert.
+        """
+        candidates = [
+            (pid, plant)
+            for pid, plant in self._plants.items()
+            if isinstance(plant.get("photo"), str)
+            and plant["photo"].startswith("data:image/")
+        ]
+        if not candidates:
+            return 0
+
+        photos_dir = get_photos_dir(self.hass)
+
+        def _write_all() -> dict[str, str]:
+            photos_dir.mkdir(parents=True, exist_ok=True)
+            result: dict[str, str] = {}
+            for pid, plant in candidates:
+                data_url: str = plant["photo"]
+                try:
+                    header, b64 = data_url.split(",", 1)
+                    mime = header.split(";", 1)[0].removeprefix("data:")
+                    ext = (
+                        "jpg"
+                        if mime in ("image/jpeg", "image/jpg")
+                        else mime.split("/", 1)[-1] or "bin"
+                    )
+                    payload = base64.b64decode(b64, validate=True)
+                    fname = f"{uuid.uuid4().hex}.{ext}"
+                    (photos_dir / fname).write_bytes(payload)
+                    result[pid] = f"{PHOTOS_URL_PATH}/{fname}"
+                except Exception as err:  # noqa: BLE001 – pro Pflanze isolieren
+                    _LOGGER.warning(
+                        "Plant Care: data-URL-Migration für %s fehlgeschlagen: %s",
+                        pid,
+                        err,
+                    )
+            return result
+
+        new_paths = await self.hass.async_add_executor_job(_write_all)
+        for pid, path in new_paths.items():
+            self._plants[pid]["photo"] = path
+        return len(new_paths)
 
     def _data_to_save(self) -> dict[str, Any]:
         return {"plants": self._plants}
@@ -73,16 +128,11 @@ class PlantCareCoordinator:
     def _new_plant_id() -> str:
         return uuid.uuid4().hex[:8]
 
-    @staticmethod
-    def _clean(data: dict[str, Any]) -> dict[str, Any]:
-        """Entfernt None-Werte und leere Strings aus eingehenden Daten."""
-        return {k: v for k, v in data.items() if v is not None and v != ""}
-
     async def async_add_plant(self, data: dict[str, Any]) -> str:
         """Legt eine neue Pflanze an. Gibt die plant_id zurück."""
         plant_id = self._new_plant_id()
-        now = _utcnow_iso()
-        cleaned = self._clean(data)
+        now = utcnow_iso()
+        cleaned = clean_data(data)
         plant: dict[str, Any] = {
             "id": plant_id,
             "name": cleaned.get("name", "Unbenannte Pflanze"),
@@ -107,11 +157,17 @@ class PlantCareCoordinator:
         return plant_id
 
     async def async_update_plant(self, plant_id: str, data: dict[str, Any]) -> None:
-        """Aktualisiert Felder einer Pflanze (Merge)."""
+        """Aktualisiert Felder einer Pflanze (Merge).
+
+        Im Gegensatz zu add_plant werden leere Strings hier NICHT gefiltert –
+        sie bedeuten "User hat das Feld bewusst geleert". Nur ``None`` (= Feld
+        gar nicht im Service-Call enthalten) wird ignoriert.
+        """
         if plant_id not in self._plants:
             raise ValueError(f"Pflanze {plant_id} nicht gefunden")
-        cleaned = self._clean({k: v for k, v in data.items() if k != "plant_id"})
-        # int-Felder typisieren
+        cleaned: dict[str, Any] = {
+            k: v for k, v in data.items() if k != "plant_id" and v is not None
+        }
         for k in ("water_days", "fertilize_days"):
             if k in cleaned:
                 cleaned[k] = int(cleaned[k])

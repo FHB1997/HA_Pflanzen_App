@@ -71,8 +71,7 @@ class PlantCarePanel extends HTMLElement {
 
   _setState(patch) {
     Object.assign(this, patch);
-    this._lastStatesSignature = ""; // force re-render
-    this._render();
+    this._render(true);
   }
 
   _plants() {
@@ -301,23 +300,20 @@ class PlantCarePanel extends HTMLElement {
   }
 
   async _uploadPhotoToBackend(dataUrl) {
-    const res = await fetch("/api/plant_care/upload", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this._hass.auth?.data?.access_token ?? ""}`,
-      },
-      body: JSON.stringify({
+    // hass.callApi nutzt das vom Frontend verwaltete Token und vermeidet
+    // den Griff in interne hass.auth-Strukturen.
+    try {
+      return await this._hass.callApi("POST", "plant_care/upload", {
         image_base64: dataUrl,
         mime: "image/jpeg",
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Upload fehlgeschlagen: ${res.status} ${text}`);
+      });
+    } catch (err) {
+      const msg =
+        err?.body?.message ||
+        err?.message ||
+        (typeof err === "string" ? err : "Upload fehlgeschlagen");
+      throw new Error(msg);
     }
-    return res.json();
   }
 
   async _handlePhotoFile(file, opts = {}) {
@@ -326,21 +322,24 @@ class PlantCarePanel extends HTMLElement {
       this._showToast("error", "Bitte ein Bild auswählen");
       return;
     }
+    this._aiBusy = true;
+    this._render();
     try {
       const dataUrl = await this._resizeImage(file);
+      // Immer hochladen – keine data-URLs im HA-Store, da sonst der
+      // plant_care.plants Storage-JSON bei vielen Pflanzen aufgeblasen wird.
+      const upload = await this._uploadPhotoToBackend(dataUrl);
+      this._draft = { ...(this._draft || {}), photo: upload.path };
+      this._render();
       if (opts.identifyWithAi) {
-        const upload = await this._uploadPhotoToBackend(dataUrl);
-        this._draft = { ...(this._draft || {}), photo: upload.path };
-        this._render();
         await this._aiIdentifyFromPhoto(upload);
-      } else {
-        // Phase 1: data-URL direkt im Plant-Dict
-        this._draft = { ...(this._draft || {}), photo: dataUrl };
-        this._render();
       }
     } catch (err) {
       console.error(err);
       this._showToast("error", err.message || String(err));
+    } finally {
+      this._aiBusy = false;
+      this._render();
     }
   }
 
@@ -412,11 +411,22 @@ class PlantCarePanel extends HTMLElement {
 
   /* -------------------------------- Render ------------------------------- */
 
-  _render() {
+  _render(force = false) {
     if (!this._hass) return;
     const plants = this._plants();
-    const sig = `${this._view}|${this._selectedId}|${this._addTab}|${this._roomFilter}|${this._aiBusy ? 1 : 0}|${this._toast ? this._toast.msg : ""}|${this._signature(plants)}|${JSON.stringify(this._draft || {}).length}`;
-    if (sig === this._lastStatesSignature) return;
+    const sig = [
+      this._view,
+      this._selectedId || "",
+      this._addTab,
+      this._roomFilter,
+      this._aiBusy ? 1 : 0,
+      this._toast ? this._toast.msg : "",
+      this._signature(plants),
+      // Volle Draft-Signatur, nicht nur Länge – sonst werden Edits
+      // gleicher Länge (z.B. "Monstera" → "Ficus123") nicht re-rendered.
+      JSON.stringify(this._draft || {}),
+    ].join("|");
+    if (!force && sig === this._lastStatesSignature) return;
     this._lastStatesSignature = sig;
 
     this.shadowRoot.innerHTML = `
@@ -760,6 +770,8 @@ class PlantCarePanel extends HTMLElement {
     const H = 50;
     const P = 8;
     const now = Date.now();
+    // Muss zu HISTORY_MAX_ENTRIES in const.py passen, sonst zeigt der
+    // Chart bei sehr häufigen Events einen abgeschnittenen Zeitraum.
     const daySpan = 90;
     const spanMs = daySpan * 86400000;
     const points = (history || [])
@@ -902,18 +914,29 @@ class PlantCarePanel extends HTMLElement {
     evt.preventDefault();
     const form = evt.target;
     const formData = new FormData(form);
+    const isEdit = this._view === "edit" && this._selectedId;
     const data = {};
     for (const [k, v] of formData.entries()) {
       if (k === "photo_file") continue;
-      if (v === "" && k !== "name") continue;
+      // Add-Mode: leere Strings überspringen, damit Backend-Defaults greifen.
+      // Edit-Mode: leere Strings durchlassen → User kann Feld explizit leeren.
+      if (!isEdit && v === "" && k !== "name") continue;
       data[k] = v;
     }
-    // Numerische Felder casten
+    // Numerische Felder casten. Leere Eingaben im Edit-Mode entfernen,
+    // damit der bestehende Wert erhalten bleibt (kein NaN-Update).
     for (const k of ["water_days", "fertilize_days"]) {
-      if (data[k] !== undefined) data[k] = parseInt(data[k], 10);
+      if (data[k] === "" || data[k] === undefined) {
+        delete data[k];
+      } else {
+        data[k] = parseInt(data[k], 10);
+      }
     }
-    // Photo aus Draft übernehmen
-    if (this._draft?.photo) data.photo = this._draft.photo;
+    // Photo aus Draft übernehmen. Im Edit-Mode bedeutet draft.photo === ""
+    // explizit "Foto entfernen".
+    if (this._draft && "photo" in this._draft) {
+      data.photo = this._draft.photo || "";
+    }
 
     try {
       if (this._view === "edit" && this._selectedId) {

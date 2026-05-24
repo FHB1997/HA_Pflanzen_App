@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from ._utils import needs_time_based, try_float
 from .const import (
     DOMAIN,
     MOISTURE_LOW_PCT,
@@ -48,22 +49,6 @@ async def async_setup_entry(
     )
 
 
-def _parse_iso(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _try_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 class PlantSensor(SensorEntity):
     """Eine Sensor-Entity pro Pflanze. State = Status-String."""
 
@@ -73,14 +58,17 @@ class PlantSensor(SensorEntity):
     def __init__(self, coordinator: PlantCareCoordinator, plant_id: str) -> None:
         self._coord = coordinator
         self._plant_id = plant_id
-        plant = coordinator.plants.get(plant_id, {})
         self._attr_unique_id = f"{DOMAIN}_{plant_id}"
-        self._attr_name = f"Plant {plant.get('name', plant_id)}"
         self._attr_icon = "mdi:flower-outline"
 
     @property
     def _plant(self) -> dict[str, Any]:
         return self._coord.plants.get(self._plant_id, {})
+
+    @property
+    def name(self) -> str:
+        plant_name = self._plant.get("name")
+        return f"Plant {plant_name or self._plant_id}"
 
     @property
     def available(self) -> bool:
@@ -95,7 +83,7 @@ class PlantSensor(SensorEntity):
         now = datetime.now(timezone.utc)
 
         # 1) Zeit-basiert für Wasser
-        needs_water = self._needs_time_based(
+        needs_water = needs_time_based(
             plant.get("last_watered"), plant.get("water_days"), now
         )
 
@@ -108,7 +96,7 @@ class PlantSensor(SensorEntity):
                 needs_water = False
 
         # 3) Zeit-basiert für Dünger
-        needs_fertilizer = self._needs_time_based(
+        needs_fertilizer = needs_time_based(
             plant.get("last_fertilized"), plant.get("fertilize_days"), now
         )
 
@@ -120,24 +108,13 @@ class PlantSensor(SensorEntity):
             return STATUS_NEEDS_FERTILIZER
         return STATUS_OK
 
-    @staticmethod
-    def _needs_time_based(
-        last_iso: str | None, days: int | None, now: datetime
-    ) -> bool:
-        last = _parse_iso(last_iso)
-        if last is None or not days:
-            # Nie gegossen/gedüngt → ja, braucht Pflege.
-            return last_iso is None
-        due = last + timedelta(days=int(days))
-        return now >= due
-
     def _read_moisture(self, sensor_entity_id: str | None) -> float | None:
         if not sensor_entity_id:
             return None
         state = self._coord.hass.states.get(sensor_entity_id)
         if state is None:
             return None
-        return _try_float(state.state)
+        return try_float(state.state)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
