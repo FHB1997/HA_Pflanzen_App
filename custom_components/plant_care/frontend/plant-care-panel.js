@@ -35,6 +35,9 @@ class PlantCarePanel extends HTMLElement {
     this._toast = null;
     this._toastTimer = null;
     this._roomFilter = ROOM_ALL;
+    this._bulkMode = false;
+    this._bulkSelection = new Set();
+    this._bulkBusy = false;
     this._addTab = "ai"; // ai | library
     this._aiBusy = false;
     this._lastStatesSignature = "";
@@ -425,6 +428,9 @@ class PlantCarePanel extends HTMLElement {
       // Volle Draft-Signatur, nicht nur Länge – sonst werden Edits
       // gleicher Länge (z.B. "Monstera" → "Ficus123") nicht re-rendered.
       JSON.stringify(this._draft || {}),
+      this._bulkMode ? 1 : 0,
+      this._bulkBusy ? 1 : 0,
+      Array.from(this._bulkSelection).sort().join(","),
     ].join("|");
     if (!force && sig === this._lastStatesSignature) return;
     this._lastStatesSignature = sig;
@@ -437,14 +443,18 @@ class PlantCarePanel extends HTMLElement {
             <span class="leaf">🌿</span>
             <h1>Plant Care</h1>
           </div>
-          ${this._view === "list" ? `
-            <button class="btn primary" data-action="new">+ Neue Pflanze</button>
+          ${this._view === "list" ? (this._bulkMode ? `
+            <button class="btn ghost" data-action="bulk-cancel">Abbrechen</button>
           ` : `
+            <button class="btn ghost" data-action="bulk-toggle">☑ Auswahl</button>
+            <button class="btn primary" data-action="new">+ Neue Pflanze</button>
+          `) : `
             <button class="btn ghost" data-action="back">← Zurück</button>
           `}
         </header>
         ${this._toast ? this._renderToast() : ""}
         <main class="main">${this._renderView()}</main>
+        ${this._bulkMode && this._view === "list" ? this._renderBulkActionBar() : ""}
       </div>
     `;
 
@@ -511,8 +521,14 @@ class PlantCarePanel extends HTMLElement {
 
   _renderCard(p) {
     const status = p.state || "ok";
+    const selected = this._bulkMode && this._bulkSelection.has(p.plant_id);
+    const cardClass = `card${this._bulkMode ? " bulk" : ""}${selected ? " selected" : ""}`;
+    const action = this._bulkMode ? "bulk-toggle-card" : "open-detail";
     return `
-      <article class="card" data-action="open-detail" data-id="${this._escapeAttr(p.plant_id)}">
+      <article class="${cardClass}" data-action="${action}" data-id="${this._escapeAttr(p.plant_id)}">
+        ${this._bulkMode ? `
+          <div class="bulk-check ${selected ? "checked" : ""}" aria-hidden="true">${selected ? "✓" : ""}</div>
+        ` : ""}
         <div class="thumb">
           ${p.photo
             ? `<img src="${this._escapeAttr(p.photo)}" alt="">`
@@ -525,6 +541,46 @@ class PlantCarePanel extends HTMLElement {
           <p class="muted small">💧 ${this._escape(this._relativeTime(p.last_watered))}</p>
         </div>
       </article>
+    `;
+  }
+
+  _visiblePlants() {
+    const plants = this._plants();
+    const filter = this._roomFilter;
+    if (filter === ROOM_ALL) return plants;
+    return plants.filter((p) => (p.location || "").trim() === filter);
+  }
+
+  _renderBulkActionBar() {
+    const visiblePlants = this._visiblePlants();
+    const visibleIds = visiblePlants.map((p) => p.plant_id);
+    const visibleSelectedCount = visibleIds.filter(
+      (id) => this._bulkSelection.has(id),
+    ).length;
+    const allVisibleSelected =
+      visibleIds.length > 0 && visibleSelectedCount === visibleIds.length;
+    const totalSelected = this._bulkSelection.size;
+    const disabled = totalSelected === 0 || this._bulkBusy;
+    const busyMark = this._bulkBusy ? " ⏳" : "";
+    return `
+      <div class="bulk-bar">
+        <label class="bulk-bar-select-all">
+          <input
+            type="checkbox"
+            data-action="bulk-select-all"
+            ${allVisibleSelected ? "checked" : ""}
+            ${this._bulkBusy ? "disabled" : ""}
+          />
+          <span>Alle</span>
+        </label>
+        <span class="bulk-bar-count">
+          ${totalSelected} ${totalSelected === 1 ? "Pflanze" : "Pflanzen"} ausgewählt
+        </span>
+        <div class="bulk-bar-actions">
+          <button class="btn primary" data-action="bulk-water" ${disabled ? "disabled" : ""}>💧 Gegossen${busyMark}</button>
+          <button class="btn primary" data-action="bulk-fertilize" ${disabled ? "disabled" : ""}>🌱 Gedüngt${busyMark}</button>
+        </div>
+      </div>
     `;
   }
 
@@ -801,6 +857,45 @@ class PlantCarePanel extends HTMLElement {
     const id = target.dataset.id;
 
     switch (action) {
+      case "bulk-toggle":
+        this._bulkMode = true;
+        this._bulkSelection = new Set();
+        this._setState({});
+        break;
+      case "bulk-cancel":
+        this._bulkMode = false;
+        this._bulkSelection = new Set();
+        this._setState({});
+        break;
+      case "bulk-toggle-card":
+        if (!this._bulkMode) break;
+        if (this._bulkSelection.has(id)) {
+          this._bulkSelection.delete(id);
+        } else {
+          this._bulkSelection.add(id);
+        }
+        this._setState({});
+        break;
+      case "bulk-select-all": {
+        const visible = this._visiblePlants();
+        const visibleIds = visible.map((p) => p.plant_id);
+        const allSelected =
+          visibleIds.length > 0 &&
+          visibleIds.every((idv) => this._bulkSelection.has(idv));
+        if (allSelected) {
+          visibleIds.forEach((idv) => this._bulkSelection.delete(idv));
+        } else {
+          visibleIds.forEach((idv) => this._bulkSelection.add(idv));
+        }
+        this._setState({});
+        break;
+      }
+      case "bulk-water":
+        this._executeBulkAction("water_plant");
+        break;
+      case "bulk-fertilize":
+        this._executeBulkAction("fertilize_plant");
+        break;
       case "new":
         this._draft = {};
         this._addTab = "ai";
@@ -990,6 +1085,43 @@ class PlantCarePanel extends HTMLElement {
     }
   }
 
+  async _executeBulkAction(serviceName) {
+    const ids = Array.from(this._bulkSelection);
+    if (ids.length === 0 || this._bulkBusy) return;
+    const labels = {
+      water_plant: { confirm: "als gegossen", past: "als gegossen" },
+      fertilize_plant: { confirm: "als gedüngt", past: "als gedüngt" },
+    };
+    const label = labels[serviceName];
+    if (!label) return;
+    if (ids.length > 5) {
+      if (!confirm(`${ids.length} Pflanzen ${label.confirm} markieren?`)) return;
+    }
+    this._bulkBusy = true;
+    this._render();
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          this._callService("plant_care", serviceName, { plant_id: id }),
+        ),
+      );
+      this._showToast(
+        "success",
+        `${ids.length} ${ids.length === 1 ? "Pflanze" : "Pflanzen"} ${label.past} markiert`,
+      );
+      this._bulkSelection.clear();
+      this._bulkMode = false;
+    } catch (err) {
+      this._showToast(
+        "error",
+        "Bulk-Action fehlgeschlagen: " + this._fmtErr(err),
+      );
+    } finally {
+      this._bulkBusy = false;
+      this._setState({});
+    }
+  }
+
   /* -------------------------------- Styles ------------------------------- */
 
   _styles() {
@@ -1096,10 +1228,72 @@ class PlantCarePanel extends HTMLElement {
         overflow: hidden;
         cursor: pointer;
         transition: transform .1s, box-shadow .15s;
+        position: relative;
       }
       .card:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      }
+      .card.bulk { cursor: pointer; user-select: none; }
+      .card.bulk.selected {
+        outline: 3px solid var(--sage);
+        outline-offset: -3px;
+      }
+      .bulk-check {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--card-background-color, #fff);
+        border: 2px solid var(--sage);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--sage);
+        z-index: 2;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      }
+      .bulk-check.checked { background: var(--sage); color: #fff; }
+      .bulk-bar {
+        position: sticky;
+        bottom: 0;
+        margin-top: 16px;
+        background: var(--card-background-color, #fff);
+        border-top: 1px solid var(--divider-color, rgba(0,0,0,0.1));
+        box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        z-index: 5;
+      }
+      .bulk-bar-select-all {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .bulk-bar-select-all input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--sage);
+      }
+      .bulk-bar-count {
+        flex: 1 1 auto;
+        color: var(--secondary-text-color, #777);
+        font-size: 0.9rem;
+        min-width: 0;
+      }
+      .bulk-bar-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
       }
       .thumb {
         width: 100%;

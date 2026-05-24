@@ -52,6 +52,14 @@ Nach der Installation erscheint **Plant Care** in der Sidebar.
 
 Im Add-Form auf **📷 Per Foto erkennen** klicken → Foto aufnehmen oder hochladen → die KI identifiziert die Art und schlägt Pflegeintervalle vor.
 
+### Mehrere Pflanzen gleichzeitig erledigen
+
+Auf der List-View **☑ Auswahl** tappen → jede Card wird per Klick
+selektiert/deselektiert. In der Bottom-Bar **💧 Gegossen** oder
+**🌱 Gedüngt** auslösen. Bei mehr als 5 Pflanzen kommt ein
+Bestätigungs-Dialog. Die "Alle"-Checkbox in der Bar bezieht sich auf
+die aktuell sichtbaren Pflanzen (Raum-Filter wird respektiert).
+
 ### Sensor-Verknüpfung
 
 Im Add/Edit-Formular einen Sensor auswählen. Die Logik:
