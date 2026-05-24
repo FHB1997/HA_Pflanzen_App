@@ -98,3 +98,33 @@ def is_rate_limited(
     if last is None:
         return False
     return (now - last) < timedelta(hours=hours)
+
+
+def parse_action_id(action_id: str) -> tuple[str, str] | None:
+    """Zerlegt ``PLANTCARE_<ACTION>_<plant_id>`` → ``(action, plant_id)``.
+
+    Tolerant gegenüber unbekannten Actions – der Dispatcher entscheidet,
+    welche Actions er kennt. Rückgabe ``None`` nur bei Prefix-Mismatch
+    oder fehlenden Segmenten.
+    """
+    if not action_id:
+        return None
+    parts = action_id.split("_", 2)
+    if len(parts) < 3 or parts[0] != "PLANTCARE":
+        return None
+    return (parts[1], parts[2])
+
+
+def compute_snooze_last_notified(
+    now: datetime, snooze_hours: int, rate_limit_hours: int
+) -> datetime:
+    """Berechnet ``last_notified`` so, dass Rate-Limit für ``snooze_hours`` greift.
+
+    Strategie: das bestehende Rate-Limit (``rate_limit_hours``) abzüglich
+    der gewünschten Snooze-Dauer in die Zukunft verschieben. Wenn das
+    Rate-Limit größer ist als der Snooze-Wunsch, hat der User-Wunsch
+    keinen sichtbaren Effekt – sein Rate-Limit greift länger.
+    """
+    rate_h = max(0, rate_limit_hours)
+    offset_hours = max(0, snooze_hours - rate_h)
+    return now + timedelta(hours=offset_hours)

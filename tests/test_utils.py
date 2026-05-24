@@ -9,9 +9,11 @@ from datetime import datetime, time as dt_time, timedelta, timezone
 
 from _utils import (  # type: ignore[import-not-found]
     clean_data,
+    compute_snooze_last_notified,
     is_in_quiet_hours,
     is_rate_limited,
     needs_time_based,
+    parse_action_id,
     parse_iso,
     parse_time_string,
     try_float,
@@ -182,6 +184,66 @@ def test_rate_limit_garbage_returns_false():
 
 
 # --------------------------- utcnow_iso ---------------------------
+
+# --------------------------- parse_action_id ---------------------------
+
+def test_parse_action_id_water():
+    assert parse_action_id("PLANTCARE_WATER_abc123") == ("WATER", "abc123")
+
+
+def test_parse_action_id_fertilize():
+    assert parse_action_id("PLANTCARE_FERTILIZE_xy9") == ("FERTILIZE", "xy9")
+
+
+def test_parse_action_id_snooze():
+    assert parse_action_id("PLANTCARE_SNOOZE_abc") == ("SNOOZE", "abc")
+
+
+def test_parse_action_id_unknown_action_passes_through():
+    # Parser tolerant – Dispatcher filtert.
+    assert parse_action_id("PLANTCARE_FOO_abc") == ("FOO", "abc")
+
+
+def test_parse_action_id_wrong_prefix_returns_none():
+    assert parse_action_id("OTHER_WATER_abc") is None
+
+
+def test_parse_action_id_too_few_segments_returns_none():
+    assert parse_action_id("PLANTCARE_WATER") is None
+    assert parse_action_id("PLANTCARE") is None
+    assert parse_action_id("") is None
+
+
+def test_parse_action_id_plant_id_with_underscore():
+    assert parse_action_id("PLANTCARE_WATER_ab_cd") == ("WATER", "ab_cd")
+
+
+# --------------------- compute_snooze_last_notified ---------------------
+
+def test_compute_snooze_no_rate_limit():
+    result = compute_snooze_last_notified(NOW, snooze_hours=24, rate_limit_hours=0)
+    assert result == NOW + timedelta(hours=24)
+
+
+def test_compute_snooze_with_smaller_rate_limit():
+    result = compute_snooze_last_notified(NOW, snooze_hours=24, rate_limit_hours=12)
+    assert result == NOW + timedelta(hours=12)
+
+
+def test_compute_snooze_with_equal_rate_limit():
+    result = compute_snooze_last_notified(NOW, snooze_hours=24, rate_limit_hours=24)
+    assert result == NOW
+
+
+def test_compute_snooze_with_larger_rate_limit():
+    result = compute_snooze_last_notified(NOW, snooze_hours=24, rate_limit_hours=48)
+    assert result == NOW
+
+
+def test_compute_snooze_negative_rate_limit_treated_as_zero():
+    result = compute_snooze_last_notified(NOW, snooze_hours=24, rate_limit_hours=-5)
+    assert result == NOW + timedelta(hours=24)
+
 
 def test_utcnow_iso_returns_parseable_utc_string():
     s = utcnow_iso()
