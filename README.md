@@ -74,6 +74,17 @@ selektiert/deselektiert. In der Bottom-Bar **💧 Gegossen** oder
 Bestätigungs-Dialog. Die "Alle"-Checkbox in der Bar bezieht sich auf
 die aktuell sichtbaren Pflanzen (Raum-Filter wird respektiert).
 
+### Foto-Verlauf
+
+Im Detail-View einer Pflanze findest du den **📸 Foto-Verlauf** mit
+allen jemals hinzugefügten Bildern. "+ Foto hinzufügen" lädt ein neues
+Bild hoch und sortiert es nach Aufnahmedatum ein. Tap auf ein Thumbnail
+öffnet die Lightbox; dort kannst du blättern oder das Bild löschen.
+
+Cap pro Pflanze: 100 Fotos. Bei Überschreitung wird das älteste Foto
+automatisch entfernt (Datei wird mitgelöscht). Beim Löschen einer
+Pflanze werden alle ihre Fotos vom Disk entfernt.
+
 ### Sensor-Verknüpfung
 
 Im Add/Edit-Formular einen Sensor auswählen. Die Logik:

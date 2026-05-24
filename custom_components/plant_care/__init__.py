@@ -39,14 +39,16 @@ from .const import (
     PLATFORMS,
     REMINDER_SCAN_INTERVAL_MINUTES,
     SERVICE_ADD_PLANT,
+    SERVICE_ADD_PLANT_PHOTO,
     SERVICE_FERTILIZE_PLANT,
     SERVICE_REMOVE_PLANT,
+    SERVICE_REMOVE_PLANT_PHOTO,
     SERVICE_SEND_REMINDERS,
     SERVICE_UPDATE_PLANT,
     SERVICE_WATER_PLANT,
 )
 from .coordinator import PlantCareCoordinator
-from .http import PlantPhotoUploadView, get_photos_dir
+from .http import PlantPhotoUploadView, get_photos_dir, save_uploaded_photo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,6 +108,25 @@ SEND_REMINDERS_SCHEMA = vol.Schema(
     {
         vol.Optional("plant_id"): cv.string,
         vol.Optional("force", default=False): cv.boolean,
+    }
+)
+
+ADD_PLANT_PHOTO_SCHEMA = vol.Schema(
+    {
+        vol.Required("plant_id"): cv.string,
+        vol.Exclusive("path", "source"): cv.string,
+        vol.Exclusive("image_base64", "source"): cv.string,
+        vol.Optional("mime", default="image/jpeg"): cv.string,
+        vol.Optional("note", default=""): cv.string,
+        vol.Optional("taken_at"): cv.datetime,
+    }
+)
+
+REMOVE_PLANT_PHOTO_SCHEMA = vol.Schema(
+    {
+        vol.Required("plant_id"): cv.string,
+        vol.Required("path"): cv.string,
+        vol.Optional("keep_file", default=False): cv.boolean,
     }
 )
 
@@ -257,6 +278,34 @@ def _register_services(
         )
         return {"sent": sent}
 
+    async def handle_add_plant_photo(call: ServiceCall) -> ServiceResponse:
+        data = dict(call.data)
+        plant_id = data["plant_id"]
+        path = data.get("path")
+        image_base64 = data.get("image_base64")
+        if not path and not image_base64:
+            raise vol.Invalid("Entweder path oder image_base64 muss gesetzt sein")
+        if not path and image_base64:
+            try:
+                path = await save_uploaded_photo(
+                    hass, image_base64, data.get("mime", "image/jpeg")
+                )
+            except ValueError as err:
+                raise vol.Invalid(str(err)) from err
+        return await coord.async_add_plant_photo(
+            plant_id=plant_id,
+            path=path,
+            note=data.get("note", ""),
+            taken_at=data.get("taken_at"),
+        )
+
+    async def handle_remove_plant_photo(call: ServiceCall) -> None:
+        await coord.async_remove_plant_photo(
+            plant_id=call.data["plant_id"],
+            path=call.data["path"],
+            keep_file=bool(call.data.get("keep_file", False)),
+        )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_PLANT,
@@ -282,6 +331,19 @@ def _register_services(
         handle_send_reminders,
         schema=SEND_REMINDERS_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ADD_PLANT_PHOTO,
+        handle_add_plant_photo,
+        schema=ADD_PLANT_PHOTO_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REMOVE_PLANT_PHOTO,
+        handle_remove_plant_photo,
+        schema=REMOVE_PLANT_PHOTO_SCHEMA,
     )
 
 
@@ -309,6 +371,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_WATER_PLANT,
         SERVICE_FERTILIZE_PLANT,
         SERVICE_SEND_REMINDERS,
+        SERVICE_ADD_PLANT_PHOTO,
+        SERVICE_REMOVE_PLANT_PHOTO,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

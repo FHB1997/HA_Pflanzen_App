@@ -31,6 +31,36 @@ def get_photos_dir(hass: HomeAssistant) -> pathlib.Path:
     return pathlib.Path(base) / PHOTOS_DIRNAME
 
 
+async def save_uploaded_photo(
+    hass: HomeAssistant, image_base64: str, mime: str = "image/jpeg"
+) -> str:
+    """Speichert ein Base64-Bild als Datei und gibt den URL-Pfad zurück.
+
+    Gemeinsamer Code-Pfad für die HTTP-View und den add_plant_photo-Service.
+    Wirft ``ValueError`` bei MIME-/Größen-/Decode-Fehlern.
+    """
+    b64 = image_base64.split(",", 1)[-1] if "," in image_base64 else image_base64
+    if mime not in ALLOWED_MIME:
+        raise ValueError(f"MIME-Typ nicht erlaubt: {mime}")
+    try:
+        data = base64.b64decode(b64, validate=True)
+    except (ValueError, binascii.Error) as err:
+        raise ValueError(f"Ungültige Base64-Daten: {err}") from err
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("Datei zu groß")
+    ext = "jpg" if mime in ("image/jpeg", "image/jpg") else mime.split("/")[1]
+    fname = f"{uuid.uuid4().hex}.{ext}"
+    photos_dir = get_photos_dir(hass)
+
+    def _write() -> None:
+        photos_dir.mkdir(parents=True, exist_ok=True)
+        (photos_dir / fname).write_bytes(data)
+
+    await hass.async_add_executor_job(_write)
+    _LOGGER.info("Plant Care: Foto gespeichert als %s", fname)
+    return f"{PHOTOS_URL_PATH}/{fname}"
+
+
 class PlantPhotoUploadView(HomeAssistantView):
     """Nimmt Base64-kodierte Fotos entgegen und legt sie als Datei ab."""
 
@@ -46,40 +76,19 @@ class PlantPhotoUploadView(HomeAssistantView):
             body = await request.json()
         except ValueError:
             return self.json_message("Ungültiges JSON", status_code=400)
-
         raw_b64 = body.get("image_base64", "")
         mime = body.get("mime", "image/jpeg")
-
         if not isinstance(raw_b64, str) or not raw_b64:
             return self.json_message("image_base64 fehlt", status_code=400)
-        # data-URL Prefix abtrennen, falls vorhanden
-        b64 = raw_b64.split(",", 1)[-1] if "," in raw_b64 else raw_b64
-
-        if mime not in ALLOWED_MIME:
-            return self.json_message(f"MIME-Typ nicht erlaubt: {mime}", status_code=400)
-
         try:
-            data = base64.b64decode(b64, validate=True)
-        except (ValueError, binascii.Error) as err:
-            return self.json_message(f"Ungültige Base64-Daten: {err}", status_code=400)
-
-        if len(data) > MAX_UPLOAD_BYTES:
-            return self.json_message("Datei zu groß", status_code=413)
-
-        ext = "jpg" if mime in ("image/jpeg", "image/jpg") else mime.split("/")[1]
-        fname = f"{uuid.uuid4().hex}.{ext}"
-        photos_dir = get_photos_dir(self._hass)
-
-        def _write() -> None:
-            photos_dir.mkdir(parents=True, exist_ok=True)
-            (photos_dir / fname).write_bytes(data)
-
-        await self._hass.async_add_executor_job(_write)
-        _LOGGER.info("Plant Care: Foto gespeichert als %s", fname)
-
+            path = await save_uploaded_photo(self._hass, raw_b64, mime)
+        except ValueError as err:
+            status = 413 if "zu groß" in str(err) else 400
+            return self.json_message(str(err), status_code=status)
+        fname = path.rsplit("/", 1)[-1]
         return self.json(
             {
-                "path": f"{PHOTOS_URL_PATH}/{fname}",
+                "path": path,
                 "media_content_id": (
                     f"media-source://media_source/{LOCAL_MEDIA_KEY}/"
                     f"{PHOTOS_DIRNAME}/{fname}"

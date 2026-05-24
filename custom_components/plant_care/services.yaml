@@ -192,6 +192,58 @@ fertilize_plant:
       selector:
         datetime:
 
+add_plant_photo:
+  name: Foto hinzufügen
+  description: >
+    Fügt ein Foto zum Verlauf einer Pflanze hinzu. Entweder ein
+    `path` (auf eine bereits hochgeladene Datei) oder `image_base64`
+    muss gesetzt sein.
+  fields:
+    plant_id:
+      required: true
+      selector:
+        text:
+    path:
+      name: Pfad
+      description: URL-Pfad zu einer bereits hochgeladenen Datei.
+      selector:
+        text:
+    image_base64:
+      name: Base64-Bild
+      description: Alternative zu path; wird direkt hochgeladen.
+      selector:
+        text:
+          multiline: true
+    note:
+      name: Notiz
+      selector:
+        text:
+    taken_at:
+      name: Aufnahmedatum
+      description: Optional, Default ist jetzt.
+      selector:
+        datetime:
+
+remove_plant_photo:
+  name: Foto entfernen
+  description: Entfernt ein Foto aus dem Verlauf einer Pflanze.
+  fields:
+    plant_id:
+      required: true
+      selector:
+        text:
+    path:
+      name: Pfad
+      required: true
+      selector:
+        text:
+    keep_file:
+      name: Datei behalten
+      description: Wenn aktiv, wird nur der Eintrag entfernt, die Datei aber nicht vom Disk gelöscht.
+      default: false
+      selector:
+        boolean:
+
 send_reminders:
   name: Erinnerungen jetzt senden
   description: >

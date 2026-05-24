@@ -55,6 +55,7 @@ class PlantCarePanel extends HTMLElement {
     this._bulkMode = false;
     this._bulkSelection = new Set();
     this._bulkBusy = false;
+    this._lightbox = null;
     this._addTab = "ai"; // ai | library
     this._aiBusy = false;
     this._lastStatesSignature = "";
@@ -474,6 +475,7 @@ class PlantCarePanel extends HTMLElement {
       this._bulkMode ? 1 : 0,
       this._bulkBusy ? 1 : 0,
       Array.from(this._bulkSelection).sort().join(","),
+      JSON.stringify(this._lightbox || {}),
     ].join("|");
     if (!force && sig === this._lastStatesSignature) return;
     this._lastStatesSignature = sig;
@@ -498,6 +500,7 @@ class PlantCarePanel extends HTMLElement {
         ${this._toast ? this._renderToast() : ""}
         <main class="main">${this._renderView()}</main>
         ${this._bulkMode && this._view === "list" ? this._renderBulkActionBar() : ""}
+        ${this._lightbox ? this._renderLightbox() : ""}
       </div>
     `;
 
@@ -888,6 +891,8 @@ class PlantCarePanel extends HTMLElement {
 
         ${this._renderLocationSection(p)}
 
+        ${this._renderPhotoHistory(p)}
+
         ${p.tips ? `
           <section class="tips">
             <h3>Pflegetipps</h3>
@@ -921,6 +926,65 @@ class PlantCarePanel extends HTMLElement {
           </div>
         ` : ""}
       </section>
+    `;
+  }
+
+  _renderPhotoHistory(p) {
+    const photos = Array.isArray(p.photos) ? p.photos : [];
+    return `
+      <section class="photo-history">
+        <h3>📸 Foto-Verlauf (${photos.length})</h3>
+        <div class="photo-actions">
+          <button class="btn small" data-action="add-photo" data-id="${this._escapeAttr(p.plant_id)}">
+            + Foto hinzufügen
+          </button>
+          <input type="file" accept="image/*" id="add-photo-input" style="display:none">
+        </div>
+        ${photos.length === 0 ? `
+          <p class="muted small">Noch keine Fotos.</p>
+        ` : `
+          <div class="photo-strip">
+            ${photos.map((ph, idx) => `
+              <button class="photo-thumb" data-action="open-lightbox" data-id="${this._escapeAttr(p.plant_id)}" data-idx="${idx}">
+                <img src="${this._escapeAttr(ph.path)}" alt="">
+                <span class="photo-thumb-date">${this._escape(this._relativeTime(ph.taken_at))}</span>
+              </button>
+            `).join("")}
+          </div>
+        `}
+      </section>
+    `;
+  }
+
+  _renderLightbox() {
+    if (!this._lightbox) return "";
+    const plant = this._plantById(this._lightbox.plantId);
+    if (!plant) return "";
+    const photos = Array.isArray(plant.photos) ? plant.photos : [];
+    if (photos.length === 0) return "";
+    const idx = Math.max(0, Math.min(this._lightbox.idx, photos.length - 1));
+    const photo = photos[idx];
+    const dateStr = photo.taken_at ? new Date(photo.taken_at).toLocaleString() : "";
+    return `
+      <div class="lightbox" data-action="lightbox-close">
+        <div class="lightbox-content" data-stop>
+          <header class="lightbox-header">
+            <h3>${this._escape(plant.name)}</h3>
+            <span class="muted small">${this._escape(dateStr)}</span>
+            ${photo.note ? `<p class="muted small">${this._escape(photo.note)}</p>` : ""}
+          </header>
+          <div class="lightbox-image">
+            <img src="${this._escapeAttr(photo.path)}" alt="">
+          </div>
+          <footer class="lightbox-footer">
+            <button class="btn ghost" data-action="lightbox-prev" ${idx <= 0 ? "disabled" : ""}>← Älter</button>
+            <button class="btn ghost" data-action="lightbox-next" ${idx >= photos.length - 1 ? "disabled" : ""}>Neuer →</button>
+            <span class="lightbox-spacer"></span>
+            <button class="btn danger small" data-action="lightbox-delete">Löschen</button>
+            <button class="btn small" data-action="lightbox-close-btn">Schließen</button>
+          </footer>
+        </div>
+      </div>
     `;
   }
 
@@ -1023,6 +1087,71 @@ class PlantCarePanel extends HTMLElement {
           visibleIds.forEach((idv) => this._bulkSelection.add(idv));
         }
         this._setState({});
+        break;
+      }
+      case "add-photo": {
+        evt.preventDefault();
+        const input = this.shadowRoot.getElementById("add-photo-input");
+        const plantId = id;
+        if (input) {
+          input.onchange = (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) this._handleAddPhotoFile(plantId, file);
+          };
+          input.click();
+        }
+        break;
+      }
+      case "open-lightbox":
+        this._lightbox = { plantId: id, idx: parseInt(target.dataset.idx, 10) || 0 };
+        this._setState({});
+        break;
+      case "lightbox-close":
+        // Click on backdrop schließt; Click im Content nicht (data-stop).
+        if (evt.target.closest("[data-stop]")) break;
+        this._lightbox = null;
+        this._setState({});
+        break;
+      case "lightbox-close-btn":
+        this._lightbox = null;
+        this._setState({});
+        break;
+      case "lightbox-prev":
+        if (this._lightbox) {
+          this._lightbox = { ...this._lightbox, idx: Math.max(0, this._lightbox.idx - 1) };
+          this._setState({});
+        }
+        break;
+      case "lightbox-next": {
+        if (!this._lightbox) break;
+        const plant = this._plantById(this._lightbox.plantId);
+        const max = (plant?.photos?.length || 1) - 1;
+        this._lightbox = { ...this._lightbox, idx: Math.min(max, this._lightbox.idx + 1) };
+        this._setState({});
+        break;
+      }
+      case "lightbox-delete": {
+        if (!this._lightbox) break;
+        const plant = this._plantById(this._lightbox.plantId);
+        const photo = plant?.photos?.[this._lightbox.idx];
+        if (!photo) break;
+        if (!confirm("Foto wirklich löschen?")) break;
+        this._callService("plant_care", "remove_plant_photo", {
+          plant_id: this._lightbox.plantId,
+          path: photo.path,
+        }).then(() => {
+          this._showToast("success", "Foto gelöscht");
+          const newPlant = this._plantById(this._lightbox.plantId);
+          const len = newPlant?.photos?.length || 0;
+          if (len === 0) {
+            this._lightbox = null;
+          } else if (this._lightbox.idx >= len) {
+            this._lightbox = { ...this._lightbox, idx: len - 1 };
+          }
+          this._setState({});
+        }).catch((err) => {
+          this._showToast("error", this._fmtErr(err));
+        });
         break;
       }
       case "dismiss-warning":
@@ -1260,6 +1389,31 @@ class PlantCarePanel extends HTMLElement {
       this._setState({ _view: "list", _selectedId: null });
     } catch (err) {
       this._showToast("error", err.message || String(err));
+    }
+  }
+
+  async _handleAddPhotoFile(plantId, file) {
+    if (!file || !file.type.startsWith("image/")) {
+      this._showToast("error", "Bitte ein Bild auswählen");
+      return;
+    }
+    this._aiBusy = true;
+    this._render();
+    try {
+      const dataUrl = await this._resizeImage(file);
+      const upload = await this._uploadPhotoToBackend(dataUrl);
+      await this._callServiceWithResponse(
+        "plant_care",
+        "add_plant_photo",
+        { plant_id: plantId, path: upload.path },
+      );
+      this._showToast("success", "Foto hinzugefügt");
+    } catch (err) {
+      console.error(err);
+      this._showToast("error", err.message || String(err));
+    } finally {
+      this._aiBusy = false;
+      this._render();
     }
   }
 
@@ -1538,6 +1692,87 @@ class PlantCarePanel extends HTMLElement {
         padding: 4px 6px;
       }
       .warning-dismiss:hover { color: var(--primary-text-color); }
+
+      .photo-history { margin-bottom: 20px; }
+      .photo-history h3 { margin: 0 0 8px; font-size: 1rem; }
+      .photo-actions { margin-bottom: 12px; }
+      .photo-strip {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      .photo-thumb {
+        flex: 0 0 auto;
+        width: 80px;
+        background: none;
+        border: 1px solid var(--divider-color, rgba(0,0,0,0.1));
+        border-radius: 8px;
+        padding: 4px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      .photo-thumb:hover { border-color: var(--sage); }
+      .photo-thumb img {
+        width: 70px;
+        height: 70px;
+        object-fit: cover;
+        border-radius: 4px;
+        display: block;
+      }
+      .photo-thumb-date {
+        font-size: 0.7rem;
+        color: var(--secondary-text-color, #777);
+      }
+
+      .lightbox {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.8);
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      .lightbox-content {
+        background: var(--card-background-color, #fff);
+        border-radius: 12px;
+        max-width: 800px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .lightbox-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.1));
+      }
+      .lightbox-header h3 { margin: 0 0 4px; }
+      .lightbox-image {
+        flex: 1 1 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        min-height: 200px;
+      }
+      .lightbox-image img {
+        max-width: 100%;
+        max-height: 60vh;
+        object-fit: contain;
+      }
+      .lightbox-footer {
+        padding: 12px 16px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .lightbox-spacer { flex: 1 1 auto; }
 
       .thumb {
         width: 100%;

@@ -41,6 +41,13 @@ UPLOAD_URL_PATH: Final = "/api/plant_care/upload"
 # CHART_DAY_SPAN). Bei einem Event/Tag deckt 90 die volle Chart-Breite ab.
 HISTORY_MAX_ENTRIES: Final = 90
 
+# Foto-Verlauf
+MAX_PHOTOS_PER_PLANT: Final = 100
+
+# Service-Namen (Foto-Verlauf)
+SERVICE_ADD_PLANT_PHOTO: Final = "add_plant_photo"
+SERVICE_REMOVE_PLANT_PHOTO: Final = "remove_plant_photo"
+
 # Service-Namen
 SERVICE_ADD_PLANT: Final = "add_plant"
 SERVICE_UPDATE_PLANT: Final = "update_plant"

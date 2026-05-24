@@ -133,6 +133,8 @@ class PlantSensor(SensorEntity):
             "moisture_sensor": plant.get("moisture_sensor"),
             "moisture_pct": moisture_pct,
             "photo": plant.get("photo", ""),
+            "photos": plant.get("photos", []),
+            "photos_count": len(plant.get("photos") or []),
             "tips": plant.get("tips", ""),
             "light_level": plant.get("light_level", ""),
             "room_type": plant.get("room_type", ""),

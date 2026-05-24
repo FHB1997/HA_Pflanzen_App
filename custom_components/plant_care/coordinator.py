@@ -14,11 +14,14 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from ._utils import (
+    cap_photos,
     clean_data,
     compute_snooze_last_notified,
     is_in_quiet_hours,
     is_rate_limited,
+    migrate_legacy_photo,
     parse_time_string,
+    sort_photos,
     utcnow_iso,
 )
 from .const import (
@@ -33,6 +36,7 @@ from .const import (
     DEFAULT_WATER_DAYS,
     DOMAIN,
     HISTORY_MAX_ENTRIES,
+    MAX_PHOTOS_PER_PLANT,
     PHOTOS_URL_PATH,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
@@ -91,6 +95,7 @@ class PlantCareCoordinator:
             plant.setdefault("room_type", "")
             plant.setdefault("location_tips", "")
             plant.setdefault("suitability_warning", "")
+            migrate_legacy_photo(plant)
         self._plants = plants
 
         migrated = await self._migrate_data_url_photos()
@@ -218,13 +223,101 @@ class PlantCareCoordinator:
         _LOGGER.debug("Plant Care: Pflanze %s aktualisiert", plant_id)
 
     async def async_remove_plant(self, plant_id: str) -> None:
-        """Löscht eine Pflanze."""
+        """Löscht eine Pflanze inklusive aller zugehörigen Foto-Files."""
         if plant_id not in self._plants:
             raise ValueError(f"Pflanze {plant_id} nicht gefunden")
+        photos = list(self._plants[plant_id].get("photos") or [])
         del self._plants[plant_id]
+        if photos:
+            await self._delete_photo_files([p["path"] for p in photos])
         await self._async_save_now()
         async_dispatcher_send(self.hass, SIGNAL_REMOVE_PLANT, plant_id)
-        _LOGGER.debug("Plant Care: Pflanze %s entfernt", plant_id)
+        _LOGGER.debug(
+            "Plant Care: Pflanze %s entfernt (+%d Foto-Files)",
+            plant_id,
+            len(photos),
+        )
+
+    def _sync_primary_photo(self, plant: dict[str, Any]) -> None:
+        """Hält ``photo`` synchron mit ``photos[0]`` (Primärfoto)."""
+        photos = plant.get("photos") or []
+        plant["photo"] = photos[0]["path"] if photos else ""
+
+    async def async_add_plant_photo(
+        self,
+        plant_id: str,
+        path: str,
+        note: str = "",
+        taken_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Fügt einen Foto-Eintrag zur Pflanze hinzu."""
+        if plant_id not in self._plants:
+            raise ValueError(f"Pflanze {plant_id} nicht gefunden")
+        if not path:
+            raise ValueError("path ist erforderlich")
+        entry = {
+            "path": path,
+            "taken_at": (
+                taken_at or datetime.now(timezone.utc)
+            ).astimezone(timezone.utc).isoformat(),
+            "note": note or "",
+        }
+        plant = self._plants[plant_id]
+        photos = list(plant.get("photos") or [])
+        photos.append(entry)
+        photos = sort_photos(photos)
+        kept, removed = cap_photos(photos, MAX_PHOTOS_PER_PLANT)
+        plant["photos"] = kept
+        self._sync_primary_photo(plant)
+        if removed:
+            await self._delete_photo_files([p["path"] for p in removed])
+        await self._async_save_now()
+        async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+        _LOGGER.debug("Plant Care: Foto zu Pflanze %s hinzugefügt (%s)", plant_id, path)
+        idx = kept.index(entry) if entry in kept else 0
+        return {"path": path, "index": idx}
+
+    async def async_remove_plant_photo(
+        self, plant_id: str, path: str, keep_file: bool = False
+    ) -> None:
+        """Entfernt einen Foto-Eintrag aus dem Verlauf."""
+        if plant_id not in self._plants:
+            raise ValueError(f"Pflanze {plant_id} nicht gefunden")
+        plant = self._plants[plant_id]
+        photos = list(plant.get("photos") or [])
+        original_len = len(photos)
+        photos = [p for p in photos if p.get("path") != path]
+        if len(photos) == original_len:
+            raise ValueError(f"Foto {path} nicht im Verlauf von {plant_id}")
+        plant["photos"] = photos
+        self._sync_primary_photo(plant)
+        if not keep_file:
+            await self._delete_photo_files([path])
+        await self._async_save_now()
+        async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+        _LOGGER.debug("Plant Care: Foto %s aus %s entfernt", path, plant_id)
+
+    async def _delete_photo_files(self, paths: list[str]) -> None:
+        """Löscht zu ``paths`` gehörende Dateien aus dem Foto-Verzeichnis."""
+        photos_dir = get_photos_dir(self.hass)
+
+        def _unlink_all() -> None:
+            for path in paths:
+                if not path or not path.startswith(PHOTOS_URL_PATH):
+                    continue
+                fname = path[len(PHOTOS_URL_PATH):].lstrip("/")
+                if not fname or "/" in fname or "\\" in fname or ".." in fname:
+                    continue
+                try:
+                    (photos_dir / fname).unlink(missing_ok=True)
+                except OSError as err:
+                    _LOGGER.warning(
+                        "Plant Care: Datei %s konnte nicht gelöscht werden: %s",
+                        fname,
+                        err,
+                    )
+
+        await self.hass.async_add_executor_job(_unlink_all)
 
     async def async_water_plant(
         self, plant_id: str, timestamp: datetime | None = None

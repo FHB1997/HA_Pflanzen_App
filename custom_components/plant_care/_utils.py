@@ -115,6 +115,50 @@ def parse_action_id(action_id: str) -> tuple[str, str] | None:
     return (parts[1], parts[2])
 
 
+def sort_photos(photos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sortiert Fotos descending nach ``taken_at`` (neuestes zuerst).
+
+    Fotos ohne ``taken_at`` landen ans Ende.
+    """
+    def _key(photo: dict[str, Any]) -> tuple[int, str]:
+        ts = photo.get("taken_at")
+        if not ts:
+            return (0, "")
+        return (1, ts)
+    return sorted(photos, key=_key, reverse=True)
+
+
+def migrate_legacy_photo(plant: dict[str, Any]) -> bool:
+    """Bringt eine Plant-Storage-Entry auf das neue Photo-Array-Schema."""
+    if "photos" in plant and isinstance(plant.get("photos"), list):
+        return False
+    legacy = plant.get("photo") or ""
+    if legacy and isinstance(legacy, str):
+        plant["photos"] = [
+            {
+                "path": legacy,
+                "taken_at": plant.get("created") or utcnow_iso(),
+                "note": "",
+            }
+        ]
+    else:
+        plant["photos"] = []
+    return True
+
+
+def cap_photos(
+    photos: list[dict[str, Any]], max_count: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Kürzt die DESC-sortierte Foto-Liste auf ``max_count``.
+
+    Returns ``(kept, removed)`` damit der Caller die Files
+    der entfernten Einträge vom Disk räumen kann.
+    """
+    if max_count <= 0 or len(photos) <= max_count:
+        return list(photos), []
+    return list(photos[:max_count]), list(photos[max_count:])
+
+
 def compute_snooze_last_notified(
     now: datetime, snooze_hours: int, rate_limit_hours: int
 ) -> datetime:
