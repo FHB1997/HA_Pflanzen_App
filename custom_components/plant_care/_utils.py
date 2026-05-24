@@ -115,6 +115,93 @@ def parse_action_id(action_id: str) -> tuple[str, str] | None:
     return (parts[1], parts[2])
 
 
+def generate_care_events(
+    plant: dict[str, Any],
+    start: datetime,
+    end: datetime,
+    *,
+    now: datetime | None = None,
+    max_per_kind: int = 10,
+) -> list[dict[str, Any]]:
+    """Erzeugt Pflege-Termine für eine Pflanze im Zeitraum [start, end).
+
+    Berücksichtigt ``last_watered``/``last_fertilized`` und die Intervalle.
+    Wenn die Pflanze noch nie gegossen/gedüngt wurde, fällt der erste
+    Termin auf ``start``.
+
+    Wenn ein Pflege-Termin **vor** ``start`` liegt (also versäumt wurde)
+    und die ursprüngliche Fälligkeit höchstens 30 Tage zurück ist, wird
+    **ein** Backlog-Event bei ``start`` eingefügt mit ``overdue=True``.
+    Sonst keine Events vor ``start``.
+
+    Args:
+        plant: Plant-Dict aus dem Coordinator.
+        start: Inklusiver Anfang des Anzeige-Zeitraums.
+        end: Exklusives Ende.
+        now: Aktuelle Zeit für Overdue-Bestimmung. Default: ``start``.
+        max_per_kind: Maximal so viele Events pro kind (Default 10).
+
+    Returns:
+        Liste von Dicts mit ``{plant_id, name, kind, when, overdue, original_when}``,
+        sortiert nach ``when`` aufsteigend.
+    """
+    if now is None:
+        now = start
+    events: list[dict[str, Any]] = []
+    plant_id = plant.get("id", "")
+    name = plant.get("name") or plant_id
+
+    for kind, last_key, days_key in (
+        ("water", "last_watered", "water_days"),
+        ("fertilize", "last_fertilized", "fertilize_days"),
+    ):
+        days_val = plant.get(days_key)
+        if not days_val:
+            continue
+        try:
+            days = int(days_val)
+        except (TypeError, ValueError):
+            continue
+        if days <= 0:
+            continue
+
+        last = parse_iso(plant.get(last_key))
+        if last is None:
+            # Nie gepflegt → erstes Event fällig ab Start.
+            due = start
+        else:
+            due = last + timedelta(days=days)
+            if due < start:
+                # Backlog-Event bei start, falls nicht zu lange her.
+                if due < now and due >= start - timedelta(days=30):
+                    events.append({
+                        "plant_id": plant_id,
+                        "name": name,
+                        "kind": kind,
+                        "when": start,
+                        "original_when": due,
+                        "overdue": True,
+                    })
+                missed = (start - due).days // days + 1
+                due = due + timedelta(days=days * missed)
+
+        count = 0
+        while due < end and count < max_per_kind:
+            events.append({
+                "plant_id": plant_id,
+                "name": name,
+                "kind": kind,
+                "when": due,
+                "original_when": due,
+                "overdue": due < now,
+            })
+            due = due + timedelta(days=days)
+            count += 1
+
+    events.sort(key=lambda e: e["when"])
+    return events
+
+
 def filter_open_treatments(treatments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Liefert nur Treatments mit ``status='open'``."""
     return [t for t in treatments if t.get("status") == "open"]

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import voluptuous as vol
@@ -42,6 +42,7 @@ from .const import (
     SERVICE_ADD_PLANT_PHOTO,
     SERVICE_DIAGNOSE_PLANT,
     SERVICE_FERTILIZE_PLANT,
+    SERVICE_GET_EVENTS,
     SERVICE_REMOVE_PLANT,
     SERVICE_REMOVE_PLANT_PHOTO,
     SERVICE_RESOLVE_TREATMENT,
@@ -145,6 +146,15 @@ RESOLVE_TREATMENT_SCHEMA = vol.Schema(
         vol.Required("plant_id"): cv.string,
         vol.Required("treatment_id"): cv.string,
         vol.Optional("outcome", default="resolved"): vol.In(["resolved", "dismissed"]),
+    }
+)
+
+GET_EVENTS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("start"): cv.datetime,
+        vol.Optional("end"): cv.datetime,
+        vol.Optional("plant_id"): cv.string,
+        vol.Optional("days", default=14): vol.All(vol.Coerce(int), vol.Range(min=1, max=180)),
     }
 )
 
@@ -357,6 +367,36 @@ def _register_services(
             outcome=call.data.get("outcome", "resolved"),
         )
 
+    async def handle_get_events(call: ServiceCall) -> ServiceResponse:
+        data = dict(call.data)
+        now = datetime.now(timezone.utc)
+        start = data.get("start") or now
+        end = data.get("end")
+        if end is None:
+            end = start + timedelta(days=int(data.get("days", 14) or 14))
+        # Naive datetimes → als UTC interpretieren (HA's cv.datetime liefert
+        # je nach Eingabe; wir normalisieren defensiv).
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        events = coord.get_care_events(
+            start, end, only_plant_id=data.get("plant_id")
+        )
+        return {
+            "events": [
+                {
+                    "plant_id": e["plant_id"],
+                    "name": e["name"],
+                    "kind": e["kind"],
+                    "when": e["when"].isoformat(),
+                    "original_when": e["original_when"].isoformat(),
+                    "overdue": e["overdue"],
+                }
+                for e in events
+            ]
+        }
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_PLANT,
@@ -410,6 +450,13 @@ def _register_services(
         schema=RESOLVE_TREATMENT_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_EVENTS,
+        handle_get_events,
+        schema=GET_EVENTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -440,6 +487,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_REMOVE_PLANT_PHOTO,
         SERVICE_DIAGNOSE_PLANT,
         SERVICE_RESOLVE_TREATMENT,
+        SERVICE_GET_EVENTS,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

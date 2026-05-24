@@ -18,6 +18,7 @@ from ._utils import (
     clean_data,
     compute_snooze_last_notified,
     filter_open_treatments,
+    generate_care_events,
     is_in_quiet_hours,
     is_rate_limited,
     migrate_legacy_photo,
@@ -419,6 +420,34 @@ class PlantCareCoordinator:
         raise ValueError(
             f"Treatment {treatment_id} nicht in Pflanze {plant_id} gefunden"
         )
+
+    def get_care_events(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        only_plant_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Aggregierte Pflege-Termine für den Zeitraum [start, end).
+
+        Wird vom ``get_events``-Service und der Calendar-Platform genutzt.
+        """
+        now = datetime.now(timezone.utc)
+        if only_plant_id is not None:
+            plants_to_check = (
+                [self._plants[only_plant_id]]
+                if only_plant_id in self._plants
+                else []
+            )
+        else:
+            plants_to_check = list(self._plants.values())
+        all_events: list[dict[str, Any]] = []
+        for plant in plants_to_check:
+            all_events.extend(
+                generate_care_events(plant, start, end, now=now)
+            )
+        all_events.sort(key=lambda e: e["when"])
+        return all_events
 
     async def _delete_photo_files(self, paths: list[str]) -> None:
         """Löscht zu ``paths`` gehörende Dateien aus dem Foto-Verzeichnis."""

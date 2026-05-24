@@ -1,17 +1,23 @@
 """pytest-Setup.
 
-Macht ``_utils`` (und weitere reine Hilfsmodule) direkt importierbar,
-ohne ``custom_components/plant_care/__init__.py`` zu laden – das würde
-sonst homeassistant + voluptuous als Test-Dependencies erzwingen.
+Lädt ``_utils`` direkt aus der Datei (via importlib), ohne
+``custom_components/plant_care/`` auf den sys.path zu legen. Der direkte
+Path-Eintrag würde die plant_care-eigene ``calendar.py`` (HA-Platform)
+Pythons stdlib ``calendar`` shadowen – ``datetime.strptime`` importiert
+intern stdlib ``calendar``, das hätte beim Test-Import gekracht.
 """
 from __future__ import annotations
 
+import importlib.util
 import pathlib
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLANT_CARE_DIR = REPO_ROOT / "custom_components" / "plant_care"
+UTILS_PATH = REPO_ROOT / "custom_components" / "plant_care" / "_utils.py"
 
-for path in (str(PLANT_CARE_DIR), str(REPO_ROOT)):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if "_utils" not in sys.modules:
+    spec = importlib.util.spec_from_file_location("_utils", UTILS_PATH)
+    assert spec and spec.loader, "Could not load _utils spec"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["_utils"] = module

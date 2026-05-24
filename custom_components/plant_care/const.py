@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "plant_care"
-PLATFORMS: Final = ["sensor"]
+PLATFORMS: Final = ["sensor", "calendar"]
 
 # Storage
 STORAGE_KEY: Final = f"{DOMAIN}.plants"
@@ -52,6 +52,9 @@ SERVICE_REMOVE_PLANT_PHOTO: Final = "remove_plant_photo"
 # Treatment-Service-Namen
 SERVICE_DIAGNOSE_PLANT: Final = "diagnose_plant"
 SERVICE_RESOLVE_TREATMENT: Final = "resolve_treatment"
+
+# Calendar-Service
+SERVICE_GET_EVENTS: Final = "get_events"
 
 # Anti-Spam für AI-Diagnose
 MIN_DIAGNOSE_INTERVAL_SECONDS: Final = 60

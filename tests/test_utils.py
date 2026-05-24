@@ -12,6 +12,7 @@ from _utils import (  # type: ignore[import-not-found]
     clean_data,
     compute_snooze_last_notified,
     filter_open_treatments,
+    generate_care_events,
     has_overdue_treatment,
     is_in_quiet_hours,
     is_rate_limited,
@@ -375,6 +376,104 @@ def test_parse_treatment_action_id_unknown_action_returns_none():
 
 def test_parse_treatment_action_id_missing_treatment_returns_none():
     assert parse_treatment_action_id("PLANTCARE_RESOLVE_onlyplant") is None
+
+
+# --------------------------- generate_care_events ---------------------------
+
+def test_generate_care_events_never_watered_yields_event_at_now():
+    plant = {
+        "id": "abc",
+        "name": "Monstera",
+        "water_days": 7,
+        "fertilize_days": 30,
+    }
+    start = NOW
+    end = NOW + timedelta(days=10)
+    events = generate_care_events(plant, start, end)
+    # Erstes Wasser-Event sollte sofort (= start) fällig sein,
+    # erstes Dünger-Event ebenfalls.
+    kinds = [(e["kind"], e["plant_id"]) for e in events]
+    assert ("water", "abc") in kinds
+    assert ("fertilize", "abc") in kinds
+
+
+def test_generate_care_events_existing_schedule_in_range():
+    last_water = (NOW - timedelta(days=3)).isoformat()
+    plant = {
+        "id": "p1",
+        "name": "X",
+        "water_days": 5,
+        "last_watered": last_water,
+        "fertilize_days": 60,
+        "last_fertilized": (NOW - timedelta(days=10)).isoformat(),
+    }
+    events = generate_care_events(
+        plant, NOW, NOW + timedelta(days=14)
+    )
+    water_events = [e for e in events if e["kind"] == "water"]
+    # 1. Wasser fällig in 2 Tagen (last+5 = +2), dann +7, dann +12
+    assert len(water_events) == 3
+    assert water_events[0]["when"] == parse_iso(last_water) + timedelta(days=5)
+
+
+def test_generate_care_events_skips_disabled_intervals():
+    plant = {
+        "id": "p1",
+        "name": "X",
+        "water_days": 0,  # 0 = deaktiviert
+        "fertilize_days": None,
+        "last_watered": NOW.isoformat(),
+        "last_fertilized": NOW.isoformat(),
+    }
+    events = generate_care_events(plant, NOW, NOW + timedelta(days=30))
+    assert events == []
+
+
+def test_generate_care_events_overdue_flag():
+    last_water = (NOW - timedelta(days=14)).isoformat()
+    plant = {
+        "id": "p1",
+        "name": "X",
+        "water_days": 7,
+        "last_watered": last_water,
+    }
+    # Backlog-Event wird bei start eingefügt (originally fällig NOW-7d).
+    events = generate_care_events(
+        plant, NOW, NOW + timedelta(days=14), now=NOW
+    )
+    water = [e for e in events if e["kind"] == "water"]
+    assert water[0]["overdue"] is True
+    assert water[0]["when"] == NOW
+    assert water[0]["original_when"] == parse_iso(last_water) + timedelta(days=7)
+
+
+def test_generate_care_events_excludes_before_start():
+    last_water = (NOW - timedelta(days=20)).isoformat()
+    plant = {
+        "id": "p1",
+        "name": "X",
+        "water_days": 7,
+        "last_watered": last_water,
+    }
+    # Alle Events müssen >= start sein; ein Backlog-Event landet auf start.
+    events = generate_care_events(plant, NOW, NOW + timedelta(days=7), now=NOW)
+    water = [e for e in events if e["kind"] == "water"]
+    for e in water:
+        assert e["when"] >= NOW
+
+
+def test_generate_care_events_limits_per_kind():
+    plant = {
+        "id": "p1",
+        "name": "X",
+        "water_days": 1,  # täglich
+        "last_watered": NOW.isoformat(),
+    }
+    events = generate_care_events(
+        plant, NOW, NOW + timedelta(days=100), max_per_kind=5
+    )
+    water = [e for e in events if e["kind"] == "water"]
+    assert len(water) == 5
 
 
 def test_utcnow_iso_returns_parseable_utc_string():

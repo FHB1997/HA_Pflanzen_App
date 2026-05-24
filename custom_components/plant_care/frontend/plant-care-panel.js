@@ -59,6 +59,9 @@ class PlantCarePanel extends HTMLElement {
     this._bulkBusy = false;
     this._lightbox = null;
     this._diagnoseModal = null;
+    this._calendarEvents = null;
+    this._calendarLoading = false;
+    this._calendarDays = 14;
     this._addTab = "ai"; // ai | library
     this._aiBusy = false;
     this._lastStatesSignature = "";
@@ -480,6 +483,9 @@ class PlantCarePanel extends HTMLElement {
       Array.from(this._bulkSelection).sort().join(","),
       JSON.stringify(this._lightbox || {}),
       JSON.stringify(this._diagnoseModal || {}),
+      this._calendarLoading ? 1 : 0,
+      this._calendarDays,
+      this._calendarEvents ? this._calendarEvents.length : -1,
     ].join("|");
     if (!force && sig === this._lastStatesSignature) return;
     this._lastStatesSignature = sig;
@@ -495,9 +501,13 @@ class PlantCarePanel extends HTMLElement {
           ${this._view === "list" ? (this._bulkMode ? `
             <button class="btn ghost" data-action="bulk-cancel">Abbrechen</button>
           ` : `
+            <button class="btn ghost" data-action="show-calendar">📅 Kalender</button>
             <button class="btn ghost" data-action="bulk-toggle">☑ Auswahl</button>
             <button class="btn primary" data-action="new">+ Neue Pflanze</button>
-          `) : `
+          `) : this._view === "calendar" ? `
+            <button class="btn ghost" data-action="show-list">📋 Liste</button>
+            <button class="btn primary" data-action="new">+ Neue Pflanze</button>
+          ` : `
             <button class="btn ghost" data-action="back">← Zurück</button>
           `}
         </header>
@@ -531,6 +541,8 @@ class PlantCarePanel extends HTMLElement {
         return this._renderForm("edit");
       case "detail":
         return this._renderDetail();
+      case "calendar":
+        return this._renderAgenda();
       case "list":
       default:
         return this._renderList();
@@ -633,6 +645,129 @@ class PlantCarePanel extends HTMLElement {
         </div>
       </div>
     `;
+  }
+
+  /* ----------------------------- Agenda View ----------------------------- */
+
+  async _loadCalendar() {
+    if (!this._hass) return;
+    this._calendarLoading = true;
+    this._render();
+    try {
+      const res = await this._callServiceWithResponse(
+        "plant_care",
+        "get_events",
+        { days: this._calendarDays },
+      );
+      const events = res?.events ?? res?.response?.events ?? [];
+      this._calendarEvents = Array.isArray(events) ? events : [];
+    } catch (err) {
+      console.error(err);
+      this._calendarEvents = [];
+      this._showToast(
+        "error",
+        "Konnte Kalender nicht laden: " + this._fmtErr(err),
+      );
+    } finally {
+      this._calendarLoading = false;
+      this._render();
+    }
+  }
+
+  _renderAgenda() {
+    if (this._calendarLoading && this._calendarEvents === null) {
+      return `<div class="agenda-loading">⏳ Lade Pflege-Termine…</div>`;
+    }
+    const events = this._calendarEvents || [];
+    if (events.length === 0) {
+      return `
+        <div class="empty">
+          <svg viewBox="0 0 200 200" width="120" height="120" aria-hidden="true">
+            <rect x="40" y="50" width="120" height="120" rx="8" fill="none" stroke="#9ec789" stroke-width="3"/>
+            <line x1="40" y1="80" x2="160" y2="80" stroke="#9ec789" stroke-width="3"/>
+            <circle cx="100" cy="120" r="6" fill="#6b8f5e"/>
+          </svg>
+          <h2>Keine anstehenden Termine</h2>
+          <p class="muted">In den nächsten ${this._calendarDays} Tagen ist nichts fällig.</p>
+        </div>
+      `;
+    }
+    const groups = new Map();
+    for (const e of events) {
+      const key = this._calendarDayKey(e.when);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    const todayKey = this._calendarDayKey(new Date().toISOString());
+    const tomorrowKey = this._calendarDayKey(
+      new Date(Date.now() + 86400000).toISOString(),
+    );
+    const sortedKeys = Array.from(groups.keys()).sort();
+    return `
+      <section class="agenda">
+        ${sortedKeys.map((key) => {
+          const dayEvents = groups.get(key);
+          const dateLabel = this._formatAgendaDay(key, todayKey, tomorrowKey);
+          const isToday = key === todayKey;
+          return `
+            <div class="agenda-day ${isToday ? "today" : ""}">
+              <h3 class="agenda-day-label">${this._escape(dateLabel)}</h3>
+              <ul class="agenda-events">
+                ${dayEvents.map((e) => this._renderAgendaEvent(e, isToday)).join("")}
+              </ul>
+            </div>
+          `;
+        }).join("")}
+        <div class="agenda-footer">
+          <button class="btn ghost" data-action="calendar-more">
+            Mehr anzeigen (+14 Tage)
+          </button>
+        </div>
+      </section>
+    `;
+  }
+
+  _renderAgendaEvent(e, isTodaySection) {
+    const icon = e.kind === "water" ? "💧" : "🌱";
+    const label = e.kind === "water" ? "gießen" : "düngen";
+    const service = e.kind === "water" ? "water" : "fertilize";
+    const overdueLabel = e.overdue
+      ? `<span class="agenda-overdue">⚠ überfällig</span>`
+      : "";
+    const showActionButton = isTodaySection || e.overdue;
+    return `
+      <li class="agenda-event ${e.overdue ? "overdue" : ""}">
+        <button class="agenda-event-main" data-action="open-detail" data-id="${this._escapeAttr(e.plant_id)}">
+          <span class="agenda-icon">${icon}</span>
+          <span class="agenda-event-name">${this._escape(e.name)}</span>
+          <span class="agenda-event-action muted small">${label}</span>
+          ${overdueLabel}
+        </button>
+        ${showActionButton ? `
+          <button class="btn primary small agenda-action-btn" data-action="${service}" data-id="${this._escapeAttr(e.plant_id)}" title="Als erledigt markieren">✓</button>
+        ` : ""}
+      </li>
+    `;
+  }
+
+  _calendarDayKey(isoString) {
+    const date = new Date(isoString);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  _formatAgendaDay(key, todayKey, tomorrowKey) {
+    const date = new Date(key + "T00:00:00");
+    const formatted = date.toLocaleDateString("de-DE", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+    });
+    if (key === todayKey) return `HEUTE · ${formatted}`;
+    if (key === tomorrowKey) return `MORGEN · ${formatted}`;
+    return formatted;
   }
 
   _renderEmpty() {
@@ -1261,6 +1396,19 @@ class PlantCarePanel extends HTMLElement {
     const id = target.dataset.id;
 
     switch (action) {
+      case "show-calendar":
+        this._view = "calendar";
+        this._setState({});
+        this._loadCalendar();
+        break;
+      case "show-list":
+        this._view = "list";
+        this._setState({});
+        break;
+      case "calendar-more":
+        this._calendarDays = Math.min(180, this._calendarDays + 14);
+        this._loadCalendar();
+        break;
       case "bulk-toggle":
         this._bulkMode = true;
         this._bulkSelection = new Set();
@@ -1623,6 +1771,7 @@ class PlantCarePanel extends HTMLElement {
     try {
       await this._callService("plant_care", "water_plant", { plant_id: plantId });
       this._showToast("success", "💧 Markiert als gegossen");
+      if (this._view === "calendar") this._loadCalendar();
     } catch (err) {
       this._showToast("error", err.message || String(err));
     }
@@ -1632,6 +1781,7 @@ class PlantCarePanel extends HTMLElement {
     try {
       await this._callService("plant_care", "fertilize_plant", { plant_id: plantId });
       this._showToast("success", "🌱 Markiert als gedüngt");
+      if (this._view === "calendar") this._loadCalendar();
     } catch (err) {
       this._showToast("error", err.message || String(err));
     }
@@ -1996,6 +2146,93 @@ class PlantCarePanel extends HTMLElement {
         overflow-y: auto;
       }
       .diagnose-body .error { color: var(--error-color, #c92a2a); }
+
+      /* Agenda / Calendar */
+      .agenda-loading {
+        padding: 40px 16px;
+        text-align: center;
+        color: var(--secondary-text-color, #777);
+      }
+      .agenda {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .agenda-day {
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--divider-color, rgba(255,255,255,0.08));
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .agenda-day.today {
+        border-left: 3px solid var(--sage);
+        background: rgba(126, 174, 110, 0.06);
+      }
+      .agenda-day-label {
+        font-size: 0.82rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--sage);
+        margin: 0 0 10px;
+      }
+      .agenda-events {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .agenda-event {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: var(--secondary-background-color, rgba(255,255,255,0.02));
+        border: 1px solid var(--divider-color, rgba(255,255,255,0.06));
+      }
+      .agenda-event.overdue {
+        border-left: 3px solid #f59e0b;
+        background: rgba(245, 158, 11, 0.06);
+      }
+      .agenda-event-main {
+        flex: 1 1 auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        min-width: 0;
+      }
+      .agenda-event-main:hover .agenda-event-name { text-decoration: underline; }
+      .agenda-icon { font-size: 1.15rem; line-height: 1; }
+      .agenda-event-name {
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .agenda-event-action { flex: 0 0 auto; }
+      .agenda-overdue {
+        flex: 0 0 auto;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #b45309;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .agenda-action-btn { flex: 0 0 auto; }
+      .agenda-footer {
+        margin-top: 8px;
+        text-align: center;
+      }
 
       .photo-history { margin-bottom: 20px; }
       .photo-history h3 { margin: 0 0 8px; font-size: 1rem; }

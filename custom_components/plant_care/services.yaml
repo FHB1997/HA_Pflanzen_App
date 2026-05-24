@@ -192,6 +192,37 @@ fertilize_plant:
       selector:
         datetime:
 
+get_events:
+  name: Pflege-Termine holen
+  description: >
+    Liefert geplante Pflege-Termine (Gießen, Düngen) für den angegebenen
+    Zeitraum. Wird vom Plant-Care-Panel verwendet.
+  fields:
+    start:
+      name: Start
+      description: ISO-8601 Zeitstempel. Default ist jetzt.
+      selector:
+        datetime:
+    end:
+      name: Ende
+      description: ISO-8601 Zeitstempel. Wenn nicht gesetzt, start + days.
+      selector:
+        datetime:
+    days:
+      name: Tage
+      description: Zeitraum-Länge in Tagen ab start (Default 14).
+      default: 14
+      selector:
+        number:
+          min: 1
+          max: 180
+          mode: box
+    plant_id:
+      name: Pflanzen-ID
+      description: Optional, nur diese Pflanze.
+      selector:
+        text:
+
 diagnose_plant:
   name: Pflanze diagnostizieren
   description: >
