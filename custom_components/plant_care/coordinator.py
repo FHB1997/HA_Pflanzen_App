@@ -180,6 +180,7 @@ class PlantCareCoordinator:
         plant_id = self._new_plant_id()
         now = utcnow_iso()
         cleaned = clean_data(data)
+        initial_photo = cleaned.get("photo", "")
         plant: dict[str, Any] = {
             "id": plant_id,
             "name": cleaned.get("name", "Unbenannte Pflanze"),
@@ -199,6 +200,13 @@ class PlantCareCoordinator:
             "last_fertilized": cleaned.get("last_fertilized"),
             "water_history": [],
             "fertilize_history": [],
+            "photos": (
+                [{"path": initial_photo, "taken_at": now, "note": ""}]
+                if initial_photo
+                else []
+            ),
+            "treatments": [],
+            "last_notified": None,
             "created": now,
         }
         self._plants[plant_id] = plant

@@ -60,6 +60,11 @@ class PlantSensor(SensorEntity):
 
     _attr_should_poll = False
     _attr_has_entity_name = False
+    # Diese Arrays sind groß und ändern sich häufig – nicht in der
+    # Recorder-DB persistieren, sonst bläst die SQLite über die Zeit auf.
+    _unrecorded_attributes = frozenset(
+        {"photos", "treatments", "water_history", "fertilize_history"}
+    )
 
     def __init__(self, coordinator: PlantCareCoordinator, plant_id: str) -> None:
         self._coord = coordinator
