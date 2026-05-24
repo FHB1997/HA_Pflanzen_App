@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Plant Care setup",
+        "description": "One-time setup. Plants are added later from the panel."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Plant Care is already configured."
+    }
+  },
+  "services": {
+    "add_plant": {
+      "name": "Add plant",
+      "description": "Creates a new plant and returns its ID.",
+      "fields": {
+        "name": { "name": "Name", "description": "Display name of the plant" },
+        "species": { "name": "Species", "description": "Botanical name" },
+        "common_name": { "name": "Common name", "description": "Vernacular name" },
+        "location": { "name": "Location", "description": "Room or position" },
+        "water_days": { "name": "Watering interval (days)", "description": "Days between waterings" },
+        "fertilize_days": { "name": "Fertilizing interval (days)", "description": "Days between fertilizing" },
+        "moisture_sensor": { "name": "Moisture sensor", "description": "Optional soil moisture sensor" },
+        "photo": { "name": "Photo", "description": "Data URL or path" },
+        "tips": { "name": "Care tips", "description": "Free-text notes" }
+      }
+    },
+    "update_plant": {
+      "name": "Update plant",
+      "description": "Updates fields of an existing plant.",
+      "fields": {
+        "plant_id": { "name": "Plant ID", "description": "ID of the plant to update" }
+      }
+    },
+    "remove_plant": {
+      "name": "Remove plant",
+      "description": "Deletes a plant.",
+      "fields": {
+        "plant_id": { "name": "Plant ID", "description": "ID of the plant to remove" }
+      }
+    },
+    "water_plant": {
+      "name": "Mark as watered",
+      "description": "Marks the plant as watered now.",
+      "fields": {
+        "plant_id": { "name": "Plant ID", "description": "ID of the plant" },
+        "timestamp": { "name": "Timestamp", "description": "Optional, defaults to now" }
+      }
+    },
+    "fertilize_plant": {
+      "name": "Mark as fertilized",
+      "description": "Marks the plant as fertilized now.",
+      "fields": {
+        "plant_id": { "name": "Plant ID", "description": "ID of the plant" },
+        "timestamp": { "name": "Timestamp", "description": "Optional, defaults to now" }
+      }
+    }
+  }
+}

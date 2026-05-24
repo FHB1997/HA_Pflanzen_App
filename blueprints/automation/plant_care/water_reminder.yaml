@@ -1,0 +1,79 @@
+blueprint:
+  name: Plant Care – Pflege-Erinnerung
+  description: >
+    Sendet eine Benachrichtigung, sobald eine Plant-Care-Pflanze Wasser
+    oder Dünger braucht. Quiet-Hours werden respektiert.
+  domain: automation
+  source_url: https://github.com/fhb1997/HA_Pflanzen_App/blob/main/blueprints/automation/plant_care/water_reminder.yaml
+  input:
+    plant_entity:
+      name: Pflanze
+      description: Die zu überwachende Plant-Care-Sensor-Entität.
+      selector:
+        entity:
+          domain: sensor
+          integration: plant_care
+    notify_service:
+      name: Notify-Service
+      description: 'Name des Notify-Services (z.B. notify.mobile_app_iphone).'
+      default: notify.notify
+      selector:
+        text:
+    quiet_hours_start:
+      name: Beginn Ruhezeit
+      description: Ab dieser Uhrzeit werden keine Benachrichtigungen mehr gesendet.
+      default: "22:00:00"
+      selector:
+        time:
+    quiet_hours_end:
+      name: Ende Ruhezeit
+      description: Erst ab dieser Uhrzeit werden wieder Benachrichtigungen gesendet.
+      default: "08:00:00"
+      selector:
+        time:
+    debounce_minutes:
+      name: Debounce (Minuten)
+      description: >
+        Nur Benachrichtigen, wenn der Status mindestens diese Zeitspanne
+        stabil ist. Verhindert Spurious-Notifications direkt nach HA-Restart.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input plant_entity
+    to:
+      - needs_water
+      - needs_fertilizer
+      - needs_both
+    for:
+      minutes: !input debounce_minutes
+
+condition:
+  - condition: time
+    after: !input quiet_hours_end
+    before: !input quiet_hours_start
+
+action:
+  - variables:
+      friendly: "{{ trigger.to_state.attributes.friendly_name or trigger.to_state.attributes.name }}"
+      status: "{{ trigger.to_state.state }}"
+      message: >-
+        {% if status == 'needs_water' %}
+          🌿 {{ friendly }} braucht Wasser.
+        {% elif status == 'needs_fertilizer' %}
+          🌱 {{ friendly }} braucht Dünger.
+        {% else %}
+          🌿 {{ friendly }} braucht Wasser und Dünger.
+        {% endif %}
+  - service: !input notify_service
+    data:
+      title: Plant Care
+      message: "{{ message }}"

@@ -1,0 +1,147 @@
+add_plant:
+  name: Pflanze hinzufügen
+  description: Legt eine neue Pflanze an und gibt deren ID zurück.
+  fields:
+    name:
+      name: Name
+      description: Anzeigename der Pflanze.
+      required: true
+      selector:
+        text:
+    species:
+      name: Spezies
+      description: Botanischer Name (z.B. Monstera deliciosa).
+      selector:
+        text:
+    common_name:
+      name: Trivialname
+      description: Deutscher / umgangssprachlicher Name.
+      selector:
+        text:
+    location:
+      name: Standort
+      description: Raum oder Position.
+      selector:
+        text:
+    water_days:
+      name: Gießintervall (Tage)
+      description: Tage zwischen den Gießvorgängen.
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 90
+          mode: box
+    fertilize_days:
+      name: Düngeintervall (Tage)
+      description: Tage zwischen den Düngevorgängen.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 180
+          mode: box
+    moisture_sensor:
+      name: Bodenfeuchte-Sensor
+      description: Optionaler Sensor zur Übersteuerung des Intervalls.
+      selector:
+        entity:
+          domain: sensor
+    photo:
+      name: Foto
+      description: Data-URL oder relativer Pfad.
+      selector:
+        text:
+          multiline: true
+    tips:
+      name: Pflegetipps
+      description: Freitext-Notizen.
+      selector:
+        text:
+          multiline: true
+
+update_plant:
+  name: Pflanze aktualisieren
+  description: Aktualisiert Felder einer vorhandenen Pflanze.
+  fields:
+    plant_id:
+      name: Pflanzen-ID
+      required: true
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    species:
+      selector:
+        text:
+    common_name:
+      selector:
+        text:
+    location:
+      selector:
+        text:
+    water_days:
+      selector:
+        number:
+          min: 1
+          max: 90
+          mode: box
+    fertilize_days:
+      selector:
+        number:
+          min: 1
+          max: 180
+          mode: box
+    moisture_sensor:
+      selector:
+        entity:
+          domain: sensor
+    photo:
+      selector:
+        text:
+          multiline: true
+    tips:
+      selector:
+        text:
+          multiline: true
+
+remove_plant:
+  name: Pflanze entfernen
+  description: Löscht eine Pflanze.
+  fields:
+    plant_id:
+      name: Pflanzen-ID
+      required: true
+      selector:
+        text:
+
+water_plant:
+  name: Als gegossen markieren
+  description: Markiert die Pflanze als jetzt gegossen.
+  fields:
+    plant_id:
+      name: Pflanzen-ID
+      required: true
+      selector:
+        text:
+    timestamp:
+      name: Zeitstempel
+      description: Optional, Standard ist jetzt.
+      selector:
+        datetime:
+
+fertilize_plant:
+  name: Als gedüngt markieren
+  description: Markiert die Pflanze als jetzt gedüngt.
+  fields:
+    plant_id:
+      name: Pflanzen-ID
+      required: true
+      selector:
+        text:
+    timestamp:
+      name: Zeitstempel
+      description: Optional, Standard ist jetzt.
+      selector:
+        datetime:

@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Plant Care einrichten",
+        "description": "Einmalige Einrichtung. Pflanzen werden später im Panel angelegt."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Plant Care ist bereits eingerichtet."
+    }
+  },
+  "services": {
+    "add_plant": {
+      "name": "Pflanze hinzufügen",
+      "description": "Legt eine neue Pflanze an und gibt deren ID zurück.",
+      "fields": {
+        "name": { "name": "Name", "description": "Anzeigename der Pflanze" },
+        "species": { "name": "Spezies", "description": "Botanischer Name (z.B. Monstera deliciosa)" },
+        "common_name": { "name": "Trivialname", "description": "Deutscher / umgangssprachlicher Name" },
+        "location": { "name": "Standort", "description": "Raum oder Position" },
+        "water_days": { "name": "Gießintervall (Tage)", "description": "Tage zwischen den Gießvorgängen" },
+        "fertilize_days": { "name": "Düngeintervall (Tage)", "description": "Tage zwischen den Düngevorgängen" },
+        "moisture_sensor": { "name": "Bodenfeuchte-Sensor", "description": "Optionaler Feuchte-Sensor" },
+        "photo": { "name": "Foto", "description": "Data-URL oder Pfad" },
+        "tips": { "name": "Pflegetipps", "description": "Freitext-Notizen" }
+      }
+    },
+    "update_plant": {
+      "name": "Pflanze aktualisieren",
+      "description": "Aktualisiert Felder einer vorhandenen Pflanze.",
+      "fields": {
+        "plant_id": { "name": "Pflanzen-ID", "description": "ID der zu aktualisierenden Pflanze" }
+      }
+    },
+    "remove_plant": {
+      "name": "Pflanze entfernen",
+      "description": "Löscht eine Pflanze.",
+      "fields": {
+        "plant_id": { "name": "Pflanzen-ID", "description": "ID der zu löschenden Pflanze" }
+      }
+    },
+    "water_plant": {
+      "name": "Als gegossen markieren",
+      "description": "Markiert die Pflanze als jetzt gegossen.",
+      "fields": {
+        "plant_id": { "name": "Pflanzen-ID", "description": "ID der Pflanze" },
+        "timestamp": { "name": "Zeitstempel", "description": "Optional, Standard ist jetzt" }
+      }
+    },
+    "fertilize_plant": {
+      "name": "Als gedüngt markieren",
+      "description": "Markiert die Pflanze als jetzt gedüngt.",
+      "fields": {
+        "plant_id": { "name": "Pflanzen-ID", "description": "ID der Pflanze" },
+        "timestamp": { "name": "Zeitstempel", "description": "Optional, Standard ist jetzt" }
+      }
+    }
+  }
+}

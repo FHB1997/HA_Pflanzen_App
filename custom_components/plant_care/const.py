@@ -1,0 +1,52 @@
+"""Konstanten für die Plant Care Integration."""
+from __future__ import annotations
+
+from typing import Final
+
+DOMAIN: Final = "plant_care"
+PLATFORMS: Final = ["sensor"]
+
+# Storage
+STORAGE_KEY: Final = f"{DOMAIN}.plants"
+STORAGE_VERSION: Final = 1
+
+# Dispatcher-Signals
+SIGNAL_PLANTS_UPDATED: Final = f"{DOMAIN}_plants_updated"
+SIGNAL_NEW_PLANT: Final = f"{DOMAIN}_new_plant"
+SIGNAL_REMOVE_PLANT: Final = f"{DOMAIN}_remove_plant"
+
+# Frontend / Panel
+PANEL_FRONTEND_URL_PATH: Final = "plant-care"
+PANEL_STATIC_PATH: Final = "/plant_care_frontend"
+PANEL_MODULE_URL: Final = f"{PANEL_STATIC_PATH}/plant-care-panel.js"
+PANEL_TITLE: Final = "Plant Care"
+PANEL_ICON: Final = "mdi:flower"
+
+# Moisture-Sensor Schwellen (Prozent)
+MOISTURE_LOW_PCT: Final = 20
+MOISTURE_OK_PCT: Final = 50
+
+# Status-Werte
+STATUS_OK: Final = "ok"
+STATUS_NEEDS_WATER: Final = "needs_water"
+STATUS_NEEDS_FERTILIZER: Final = "needs_fertilizer"
+STATUS_NEEDS_BOTH: Final = "needs_both"
+
+# Foto-Storage (Phase 2.1 + Scaling-Stub in Phase 1)
+PHOTOS_DIRNAME: Final = "plant_care_photos"
+PHOTOS_URL_PATH: Final = "/api/plant_care/photos"
+UPLOAD_URL_PATH: Final = "/api/plant_care/upload"
+
+# History
+HISTORY_MAX_ENTRIES: Final = 50
+
+# Service-Namen
+SERVICE_ADD_PLANT: Final = "add_plant"
+SERVICE_UPDATE_PLANT: Final = "update_plant"
+SERVICE_REMOVE_PLANT: Final = "remove_plant"
+SERVICE_WATER_PLANT: Final = "water_plant"
+SERVICE_FERTILIZE_PLANT: Final = "fertilize_plant"
+
+# Default-Intervalle (Tage)
+DEFAULT_WATER_DAYS: Final = 7
+DEFAULT_FERTILIZE_DAYS: Final = 30

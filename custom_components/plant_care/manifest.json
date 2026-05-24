@@ -1,0 +1,14 @@
+{
+  "domain": "plant_care",
+  "name": "Plant Care",
+  "version": "0.1.0",
+  "documentation": "https://github.com/fhb1997/HA_Pflanzen_App",
+  "issue_tracker": "https://github.com/fhb1997/HA_Pflanzen_App/issues",
+  "codeowners": ["@fhb1997"],
+  "config_flow": true,
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "dependencies": ["http", "frontend"],
+  "after_dependencies": ["ai_task"],
+  "requirements": []
+}
