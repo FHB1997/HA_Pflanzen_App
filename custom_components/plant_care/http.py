@@ -18,6 +18,18 @@ _LOGGER = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 ALLOWED_MIME = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 
+# Damit ai_task `attachments` per media-source resolved werden kann,
+# müssen die Fotos unterhalb von hass.config.media_dirs['local'] liegen
+# (Default: /config/media). Sonst → unknown_media_source.
+LOCAL_MEDIA_KEY = "local"
+
+
+def get_photos_dir(hass: HomeAssistant) -> pathlib.Path:
+    """Foto-Ordner unterhalb des Local-Media-Source-Roots."""
+    media_dirs = getattr(hass.config, "media_dirs", None) or {}
+    base = media_dirs.get(LOCAL_MEDIA_KEY) or hass.config.path("media")
+    return pathlib.Path(base) / PHOTOS_DIRNAME
+
 
 class PlantPhotoUploadView(HomeAssistantView):
     """Nimmt Base64-kodierte Fotos entgegen und legt sie als Datei ab."""
@@ -56,7 +68,7 @@ class PlantPhotoUploadView(HomeAssistantView):
 
         ext = "jpg" if mime in ("image/jpeg", "image/jpg") else mime.split("/")[1]
         fname = f"{uuid.uuid4().hex}.{ext}"
-        photos_dir = pathlib.Path(self._hass.config.path(PHOTOS_DIRNAME))
+        photos_dir = get_photos_dir(self._hass)
 
         def _write() -> None:
             photos_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +80,10 @@ class PlantPhotoUploadView(HomeAssistantView):
         return self.json(
             {
                 "path": f"{PHOTOS_URL_PATH}/{fname}",
-                "media_content_id": f"media-source://local/{PHOTOS_DIRNAME}/{fname}",
+                "media_content_id": (
+                    f"media-source://media_source/{LOCAL_MEDIA_KEY}/"
+                    f"{PHOTOS_DIRNAME}/{fname}"
+                ),
                 "media_content_type": mime,
             }
         )

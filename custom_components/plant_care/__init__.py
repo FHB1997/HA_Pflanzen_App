@@ -24,7 +24,6 @@ from .const import (
     PANEL_MODULE_URL,
     PANEL_STATIC_PATH,
     PANEL_TITLE,
-    PHOTOS_DIRNAME,
     PHOTOS_URL_PATH,
     PLATFORMS,
     SERVICE_ADD_PLANT,
@@ -34,7 +33,7 @@ from .const import (
     SERVICE_WATER_PLANT,
 )
 from .coordinator import PlantCareCoordinator
-from .http import PlantPhotoUploadView
+from .http import PlantPhotoUploadView, get_photos_dir
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,7 +97,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Static Paths registrieren (Frontend-JS + Foto-Verzeichnis)
     component_dir = pathlib.Path(__file__).parent
     frontend_dir = component_dir / "frontend"
-    photos_dir = pathlib.Path(hass.config.path(PHOTOS_DIRNAME))
+    photos_dir = get_photos_dir(hass)
 
     def _ensure_photos_dir() -> None:
         photos_dir.mkdir(parents=True, exist_ok=True)

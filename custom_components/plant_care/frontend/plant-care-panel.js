@@ -124,40 +124,43 @@ class PlantCarePanel extends HTMLElement {
 
   /* ----------------------------- Service-Calls --------------------------- */
 
-  async _callServiceWithResponse(domain, service, data) {
-    // Pfad 1: hass.callService mit return_response=true
+  async _callServiceWithResponse(domain, service, data, target = undefined) {
+    // notifyOnError=false: HA soll keinen eigenen Fehler-Toast zeigen,
+    // wir formulieren die Meldung selbst.
+    let directErr = null;
     try {
       const result = await this._hass.callService(
         domain,
         service,
         data,
-        undefined,
-        true,
+        target,
+        false,
         true,
       );
       if (result && (result.response !== undefined || result.data !== undefined)) {
         return result.response ?? result;
       }
     } catch (err) {
+      directErr = err;
       console.warn("[plant_care] callService direct failed, fallback:", err);
     }
-    // Pfad 2: execute_script WebSocket-Call mit response_variable
+    // Pfad 2: execute_script-Fallback (alte HA-Versionen ohne return_response)
     try {
+      const step = {
+        service: `${domain}.${service}`,
+        data,
+        response_variable: "r",
+      };
+      if (target) step.target = target;
       const result = await this._hass.connection.sendMessagePromise({
         type: "execute_script",
-        sequence: [
-          {
-            service: `${domain}.${service}`,
-            data,
-            response_variable: "r",
-          },
-          { stop: "", response_variable: "r" },
-        ],
+        sequence: [step, { stop: "", response_variable: "r" }],
       });
       return result && result.response ? result.response : result;
     } catch (err) {
       console.error("[plant_care] execute_script fallback failed:", err);
-      throw err;
+      // Originalfehler bevorzugen – meist aussagekräftiger
+      throw directErr || err;
     }
   }
 
@@ -182,7 +185,8 @@ class PlantCarePanel extends HTMLElement {
       this._showToast("error", "Bitte zuerst einen Namen eingeben");
       return;
     }
-    if (!this._findAiTaskEntity()) {
+    const aiEntity = this._findAiTaskEntity();
+    if (!aiEntity) {
       this._showToast("error", "AI Task ist nicht eingerichtet");
       return;
     }
@@ -200,13 +204,14 @@ class PlantCarePanel extends HTMLElement {
             `in Tagen sowie kurze Pflegetipps zurück. Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           structure: this._suggestStructure(),
         },
+        { entity_id: aiEntity },
       );
       const data = res?.data ?? res?.response?.data ?? res ?? {};
       this._draft = { ...(this._draft || {}), ...data };
       this._showToast("success", "Vorschlag übernommen");
     } catch (err) {
       console.error(err);
-      this._showToast("error", "KI-Vorschlag fehlgeschlagen: " + (err.message || err));
+      this._showToast("error", "KI-Vorschlag fehlgeschlagen: " + this._fmtErr(err));
     } finally {
       this._aiBusy = false;
       this._render();
@@ -214,7 +219,8 @@ class PlantCarePanel extends HTMLElement {
   }
 
   async _aiIdentifyFromPhoto(uploadResult) {
-    if (!this._findAiTaskEntity()) {
+    const aiEntity = this._findAiTaskEntity();
+    if (!aiEntity) {
       this._showToast("error", "AI Task ist nicht eingerichtet");
       return;
     }
@@ -242,6 +248,7 @@ class PlantCarePanel extends HTMLElement {
             confidence: { selector: { number: { min: 0, max: 1 } } },
           },
         },
+        { entity_id: aiEntity },
       );
       const data = res?.data ?? res?.response?.data ?? res ?? {};
       const conf = typeof data.confidence === "number" ? data.confidence : null;
@@ -261,7 +268,7 @@ class PlantCarePanel extends HTMLElement {
       );
     } catch (err) {
       console.error(err);
-      this._showToast("error", "Foto-Erkennung fehlgeschlagen: " + (err.message || err));
+      this._showToast("error", "Foto-Erkennung fehlgeschlagen: " + this._fmtErr(err));
     } finally {
       this._aiBusy = false;
       this._render();
@@ -366,6 +373,16 @@ class PlantCarePanel extends HTMLElement {
   }
 
   /* ------------------------------ Utilities ------------------------------ */
+
+  _fmtErr(err) {
+    if (!err) return "Unbekannter Fehler";
+    if (typeof err === "string") return err;
+    // HA-WebSocket-Fehler: { code, message }
+    const parts = [];
+    if (err.message) parts.push(err.message);
+    if (err.code && err.code !== err.message) parts.push(`(${err.code})`);
+    return parts.length ? parts.join(" ") : String(err);
+  }
 
   _escape(s) {
     return String(s ?? "").replace(/[&<>"']/g, (c) =>
