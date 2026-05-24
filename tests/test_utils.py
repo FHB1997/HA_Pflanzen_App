@@ -8,14 +8,20 @@ from __future__ import annotations
 from datetime import datetime, time as dt_time, timedelta, timezone
 
 from _utils import (  # type: ignore[import-not-found]
+    cap_photos,
     clean_data,
     compute_snooze_last_notified,
+    filter_open_treatments,
+    has_overdue_treatment,
     is_in_quiet_hours,
     is_rate_limited,
+    migrate_legacy_photo,
     needs_time_based,
     parse_action_id,
     parse_iso,
     parse_time_string,
+    parse_treatment_action_id,
+    sort_photos,
     try_float,
     utcnow_iso,
 )
@@ -243,6 +249,132 @@ def test_compute_snooze_with_larger_rate_limit():
 def test_compute_snooze_negative_rate_limit_treated_as_zero():
     result = compute_snooze_last_notified(NOW, snooze_hours=24, rate_limit_hours=-5)
     assert result == NOW + timedelta(hours=24)
+
+
+# --------------------------- sort_photos ---------------------------
+
+def test_sort_photos_empty():
+    assert sort_photos([]) == []
+
+
+def test_sort_photos_descending_by_taken_at():
+    photos = [
+        {"path": "/a.jpg", "taken_at": "2026-01-01T00:00:00+00:00"},
+        {"path": "/b.jpg", "taken_at": "2026-05-01T00:00:00+00:00"},
+        {"path": "/c.jpg", "taken_at": "2026-03-01T00:00:00+00:00"},
+    ]
+    result = sort_photos(photos)
+    assert [p["path"] for p in result] == ["/b.jpg", "/c.jpg", "/a.jpg"]
+
+
+def test_sort_photos_missing_taken_at_goes_last():
+    photos = [
+        {"path": "/old.jpg", "taken_at": "2026-01-01T00:00:00+00:00"},
+        {"path": "/notime.jpg"},
+        {"path": "/new.jpg", "taken_at": "2026-05-01T00:00:00+00:00"},
+    ]
+    result = sort_photos(photos)
+    assert [p["path"] for p in result] == ["/new.jpg", "/old.jpg", "/notime.jpg"]
+
+
+# --------------------- migrate_legacy_photo ---------------------
+
+def test_migrate_legacy_photo_no_photo_creates_empty_list():
+    plant = {"name": "X"}
+    assert migrate_legacy_photo(plant) is True
+    assert plant["photos"] == []
+
+
+def test_migrate_legacy_photo_with_path_creates_entry():
+    plant = {"name": "X", "photo": "/api/p.jpg", "created": "2026-01-01T00:00:00+00:00"}
+    assert migrate_legacy_photo(plant) is True
+    assert plant["photos"] == [
+        {"path": "/api/p.jpg", "taken_at": "2026-01-01T00:00:00+00:00", "note": ""}
+    ]
+
+
+def test_migrate_legacy_photo_idempotent():
+    plant = {"name": "X", "photos": [{"path": "/x.jpg", "taken_at": "2026-01-01T00:00:00+00:00", "note": ""}]}
+    assert migrate_legacy_photo(plant) is False
+
+
+# --------------------------- cap_photos ---------------------------
+
+def test_cap_photos_under_limit():
+    photos = [{"path": f"/{i}.jpg"} for i in range(3)]
+    kept, removed = cap_photos(photos, max_count=5)
+    assert kept == photos
+    assert removed == []
+
+
+def test_cap_photos_over_limit_keeps_newest():
+    photos = [
+        {"path": "/new.jpg"},
+        {"path": "/mid.jpg"},
+        {"path": "/old1.jpg"},
+        {"path": "/old2.jpg"},
+    ]
+    kept, removed = cap_photos(photos, max_count=2)
+    assert [p["path"] for p in kept] == ["/new.jpg", "/mid.jpg"]
+    assert [p["path"] for p in removed] == ["/old1.jpg", "/old2.jpg"]
+
+
+# --------------------------- Treatments ---------------------------
+
+def test_filter_open_treatments_empty():
+    assert filter_open_treatments([]) == []
+
+
+def test_filter_open_treatments_only_open():
+    treatments = [
+        {"id": "a", "status": "open"},
+        {"id": "b", "status": "resolved"},
+        {"id": "c", "status": "open"},
+    ]
+    result = filter_open_treatments(treatments)
+    assert [t["id"] for t in result] == ["a", "c"]
+
+
+def test_has_overdue_treatment_no_open():
+    treatments = [{"id": "a", "status": "resolved", "follow_up_at": "2025-01-01T00:00:00+00:00"}]
+    assert has_overdue_treatment(treatments, NOW) is False
+
+
+def test_has_overdue_treatment_open_but_not_yet_due():
+    future = (NOW + timedelta(days=3)).isoformat()
+    treatments = [{"id": "a", "status": "open", "follow_up_at": future}]
+    assert has_overdue_treatment(treatments, NOW) is False
+
+
+def test_has_overdue_treatment_open_and_overdue():
+    past = (NOW - timedelta(hours=1)).isoformat()
+    treatments = [{"id": "a", "status": "open", "follow_up_at": past}]
+    assert has_overdue_treatment(treatments, NOW) is True
+
+
+def test_has_overdue_treatment_missing_follow_up_treated_as_overdue():
+    treatments = [{"id": "a", "status": "open"}]
+    assert has_overdue_treatment(treatments, NOW) is True
+
+
+def test_parse_treatment_action_id_resolve():
+    assert parse_treatment_action_id("PLANTCARE_RESOLVE_abc_xyz123") == (
+        "RESOLVE", "abc", "xyz123",
+    )
+
+
+def test_parse_treatment_action_id_dismiss():
+    assert parse_treatment_action_id("PLANTCARE_DISMISS_p1_t1") == (
+        "DISMISS", "p1", "t1",
+    )
+
+
+def test_parse_treatment_action_id_unknown_action_returns_none():
+    assert parse_treatment_action_id("PLANTCARE_WATER_abc") is None
+
+
+def test_parse_treatment_action_id_missing_treatment_returns_none():
+    assert parse_treatment_action_id("PLANTCARE_RESOLVE_onlyplant") is None
 
 
 def test_utcnow_iso_returns_parseable_utc_string():
