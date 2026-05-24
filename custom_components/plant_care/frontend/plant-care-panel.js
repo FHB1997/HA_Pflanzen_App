@@ -124,7 +124,7 @@ class PlantCarePanel extends HTMLElement {
 
   /* ----------------------------- Service-Calls --------------------------- */
 
-  async _callServiceWithResponse(domain, service, data, target = undefined) {
+  async _callServiceWithResponse(domain, service, data) {
     // notifyOnError=false: HA soll keinen eigenen Fehler-Toast zeigen,
     // wir formulieren die Meldung selbst.
     let directErr = null;
@@ -133,7 +133,7 @@ class PlantCarePanel extends HTMLElement {
         domain,
         service,
         data,
-        target,
+        undefined,
         false,
         true,
       );
@@ -146,20 +146,20 @@ class PlantCarePanel extends HTMLElement {
     }
     // Pfad 2: execute_script-Fallback (alte HA-Versionen ohne return_response)
     try {
-      const step = {
-        service: `${domain}.${service}`,
-        data,
-        response_variable: "r",
-      };
-      if (target) step.target = target;
       const result = await this._hass.connection.sendMessagePromise({
         type: "execute_script",
-        sequence: [step, { stop: "", response_variable: "r" }],
+        sequence: [
+          {
+            service: `${domain}.${service}`,
+            data,
+            response_variable: "r",
+          },
+          { stop: "", response_variable: "r" },
+        ],
       });
       return result && result.response ? result.response : result;
     } catch (err) {
       console.error("[plant_care] execute_script fallback failed:", err);
-      // Originalfehler bevorzugen – meist aussagekräftiger
       throw directErr || err;
     }
   }
@@ -197,6 +197,7 @@ class PlantCarePanel extends HTMLElement {
         "ai_task",
         "generate_data",
         {
+          entity_id: aiEntity,
           task_name: "plant_care_suggest",
           instructions:
             `Du bist Botaniker. Für die Zimmerpflanze "${name}": ` +
@@ -204,7 +205,6 @@ class PlantCarePanel extends HTMLElement {
             `in Tagen sowie kurze Pflegetipps zurück. Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           structure: this._suggestStructure(),
         },
-        { entity_id: aiEntity },
       );
       const data = res?.data ?? res?.response?.data ?? res ?? {};
       this._draft = { ...(this._draft || {}), ...data };
@@ -231,6 +231,7 @@ class PlantCarePanel extends HTMLElement {
         "ai_task",
         "generate_data",
         {
+          entity_id: aiEntity,
           task_name: "plant_care_identify_from_photo",
           instructions:
             "Welche Zimmerpflanze ist auf dem angehängten Bild zu sehen? " +
@@ -248,7 +249,6 @@ class PlantCarePanel extends HTMLElement {
             confidence: { selector: { number: { min: 0, max: 1 } } },
           },
         },
-        { entity_id: aiEntity },
       );
       const data = res?.data ?? res?.response?.data ?? res ?? {};
       const conf = typeof data.confidence === "number" ? data.confidence : null;
