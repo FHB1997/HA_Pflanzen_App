@@ -24,7 +24,7 @@ from homeassistant.core import (
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
-from ._utils import parse_action_id
+from ._utils import parse_action_id, parse_treatment_action_id
 from .const import (
     DEFAULT_FERTILIZE_DAYS,
     DEFAULT_WATER_DAYS,
@@ -40,9 +40,11 @@ from .const import (
     REMINDER_SCAN_INTERVAL_MINUTES,
     SERVICE_ADD_PLANT,
     SERVICE_ADD_PLANT_PHOTO,
+    SERVICE_DIAGNOSE_PLANT,
     SERVICE_FERTILIZE_PLANT,
     SERVICE_REMOVE_PLANT,
     SERVICE_REMOVE_PLANT_PHOTO,
+    SERVICE_RESOLVE_TREATMENT,
     SERVICE_SEND_REMINDERS,
     SERVICE_UPDATE_PLANT,
     SERVICE_WATER_PLANT,
@@ -130,6 +132,22 @@ REMOVE_PLANT_PHOTO_SCHEMA = vol.Schema(
     }
 )
 
+DIAGNOSE_PLANT_SCHEMA = vol.Schema(
+    {
+        vol.Required("plant_id"): cv.string,
+        vol.Required("photo_path"): cv.string,
+        vol.Required("ai_response"): dict,
+    }
+)
+
+RESOLVE_TREATMENT_SCHEMA = vol.Schema(
+    {
+        vol.Required("plant_id"): cv.string,
+        vol.Required("treatment_id"): cv.string,
+        vol.Optional("outcome", default="resolved"): vol.In(["resolved", "dismissed"]),
+    }
+)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Setup einer Plant-Care-Instanz."""
@@ -183,6 +201,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     @callback
     def _handle_action_event(event: Event) -> None:
         raw_id = event.data.get("action", "")
+
+        # Treatment-Actions zuerst prüfen (eigenes ID-Format mit treatment_id).
+        treatment_parsed = parse_treatment_action_id(raw_id)
+        if treatment_parsed is not None:
+            t_action, plant_id_t, treatment_id_t = treatment_parsed
+            outcome = "resolved" if t_action == "RESOLVE" else "dismissed"
+            async def _dispatch_treatment() -> None:
+                try:
+                    await coord.async_resolve_treatment(
+                        plant_id_t, treatment_id_t, outcome
+                    )
+                except ValueError:
+                    _LOGGER.debug(
+                        "Plant Care: Treatment-Action %s für unbekannte ID %s/%s",
+                        t_action, plant_id_t, treatment_id_t,
+                    )
+            hass.async_create_task(_dispatch_treatment())
+            return
+
         parsed = parse_action_id(raw_id)
         if parsed is None:
             return  # Event von anderer Integration – ignorieren
@@ -306,6 +343,20 @@ def _register_services(
             keep_file=bool(call.data.get("keep_file", False)),
         )
 
+    async def handle_diagnose_plant(call: ServiceCall) -> ServiceResponse:
+        return await coord.async_diagnose_plant(
+            plant_id=call.data["plant_id"],
+            photo_path=call.data["photo_path"],
+            ai_response=call.data["ai_response"],
+        )
+
+    async def handle_resolve_treatment(call: ServiceCall) -> ServiceResponse:
+        return await coord.async_resolve_treatment(
+            plant_id=call.data["plant_id"],
+            treatment_id=call.data["treatment_id"],
+            outcome=call.data.get("outcome", "resolved"),
+        )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_PLANT,
@@ -345,6 +396,20 @@ def _register_services(
         handle_remove_plant_photo,
         schema=REMOVE_PLANT_PHOTO_SCHEMA,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DIAGNOSE_PLANT,
+        handle_diagnose_plant,
+        schema=DIAGNOSE_PLANT_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESOLVE_TREATMENT,
+        handle_resolve_treatment,
+        schema=RESOLVE_TREATMENT_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -373,6 +438,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_SEND_REMINDERS,
         SERVICE_ADD_PLANT_PHOTO,
         SERVICE_REMOVE_PLANT_PHOTO,
+        SERVICE_DIAGNOSE_PLANT,
+        SERVICE_RESOLVE_TREATMENT,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

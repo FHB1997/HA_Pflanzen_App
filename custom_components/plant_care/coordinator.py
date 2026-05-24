@@ -17,9 +17,11 @@ from ._utils import (
     cap_photos,
     clean_data,
     compute_snooze_last_notified,
+    filter_open_treatments,
     is_in_quiet_hours,
     is_rate_limited,
     migrate_legacy_photo,
+    parse_iso,
     parse_time_string,
     sort_photos,
     utcnow_iso,
@@ -37,11 +39,13 @@ from .const import (
     DOMAIN,
     HISTORY_MAX_ENTRIES,
     MAX_PHOTOS_PER_PLANT,
+    MIN_DIAGNOSE_INTERVAL_SECONDS,
     PHOTOS_URL_PATH,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
     SNOOZE_DEFAULT_HOURS,
+    STATUS_NEEDS_ATTENTION,
     STATUS_NEEDS_BOTH,
     STATUS_NEEDS_FERTILIZER,
     STATUS_NEEDS_WATER,
@@ -96,6 +100,7 @@ class PlantCareCoordinator:
             plant.setdefault("location_tips", "")
             plant.setdefault("suitability_warning", "")
             migrate_legacy_photo(plant)
+            plant.setdefault("treatments", [])
         self._plants = plants
 
         migrated = await self._migrate_data_url_photos()
@@ -297,6 +302,116 @@ class PlantCareCoordinator:
         async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
         _LOGGER.debug("Plant Care: Foto %s aus %s entfernt", path, plant_id)
 
+    async def async_diagnose_plant(
+        self,
+        plant_id: str,
+        photo_path: str,
+        ai_response: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Speichert das Ergebnis einer AI-Diagnose als Treatment-Eintrag."""
+        if plant_id not in self._plants:
+            raise ValueError(f"Pflanze {plant_id} nicht gefunden")
+        plant = self._plants[plant_id]
+
+        # Anti-Spam-Throttle
+        treatments = list(plant.get("treatments") or [])
+        if treatments:
+            latest = treatments[-1]
+            started = parse_iso(latest.get("started_at"))
+            if started is not None:
+                age = (datetime.now(timezone.utc) - started).total_seconds()
+                if age < MIN_DIAGNOSE_INTERVAL_SECONDS:
+                    raise ValueError(
+                        f"Bitte mindestens {MIN_DIAGNOSE_INTERVAL_SECONDS}s "
+                        "zwischen Diagnose-Anfragen warten"
+                    )
+
+        diagnosis = str(ai_response.get("diagnosis") or "").strip()
+        if not diagnosis:
+            raise ValueError("AI-Antwort enthält keine diagnosis")
+
+        confidence = ai_response.get("confidence")
+        try:
+            confidence = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence = None
+
+        steps_raw = ai_response.get("treatment_steps") or []
+        if isinstance(steps_raw, str):
+            steps = [steps_raw]
+        elif isinstance(steps_raw, list):
+            steps = [str(s) for s in steps_raw if s]
+        else:
+            steps = []
+
+        try:
+            follow_up_days = int(ai_response.get("follow_up_days") or 7)
+        except (TypeError, ValueError):
+            follow_up_days = 7
+        follow_up_days = max(1, min(30, follow_up_days))
+
+        severity = str(ai_response.get("severity") or "").strip().lower()
+        if severity not in ("low", "medium", "high"):
+            severity = "medium"
+
+        started_at = datetime.now(timezone.utc)
+        treatment_id = uuid.uuid4().hex[:12]
+        treatment = {
+            "id": treatment_id,
+            "started_at": started_at.isoformat(),
+            "photo_path": photo_path,
+            "diagnosis": diagnosis,
+            "confidence": confidence,
+            "treatment_steps": steps,
+            "follow_up_days": follow_up_days,
+            "follow_up_at": (
+                started_at + timedelta(days=follow_up_days)
+            ).isoformat(),
+            "severity": severity,
+            "status": "open",
+            "resolved_at": None,
+        }
+        treatments.append(treatment)
+        plant["treatments"] = treatments
+        await self._async_save_now()
+        async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+        _LOGGER.info(
+            "Plant Care: Treatment %s für Pflanze %s angelegt (%s)",
+            treatment_id,
+            plant_id,
+            diagnosis[:60],
+        )
+        return treatment
+
+    async def async_resolve_treatment(
+        self,
+        plant_id: str,
+        treatment_id: str,
+        outcome: str = "resolved",
+    ) -> dict[str, Any]:
+        """Schließt ein offenes Treatment ab."""
+        if plant_id not in self._plants:
+            raise ValueError(f"Pflanze {plant_id} nicht gefunden")
+        if outcome not in ("resolved", "dismissed"):
+            raise ValueError(f"Ungültiges outcome: {outcome}")
+        plant = self._plants[plant_id]
+        treatments = list(plant.get("treatments") or [])
+        for treatment in treatments:
+            if treatment.get("id") == treatment_id:
+                treatment["status"] = outcome
+                treatment["resolved_at"] = datetime.now(timezone.utc).isoformat()
+                plant["treatments"] = treatments
+                await self._async_save_now()
+                async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+                _LOGGER.info(
+                    "Plant Care: Treatment %s als %s markiert",
+                    treatment_id, outcome,
+                )
+                return treatment
+        raise ValueError(
+            f"Treatment {treatment_id} nicht in Pflanze {plant_id} gefunden"
+        )
+
     async def _delete_photo_files(self, paths: list[str]) -> None:
         """Löscht zu ``paths`` gehörende Dateien aus dem Foto-Verzeichnis."""
         photos_dir = get_photos_dir(self.hass)
@@ -465,8 +580,15 @@ class PlantCareCoordinator:
             payload: dict[str, Any] = {"title": title, "message": message}
 
             if _is_mobile_app_service(notify_service):
+                open_treatment_id: str | None = None
+                if state.state == STATUS_NEEDS_ATTENTION:
+                    open_t = filter_open_treatments(plant.get("treatments") or [])
+                    if open_t:
+                        open_treatment_id = open_t[0].get("id")
                 payload["data"] = {
-                    "actions": _build_notification_actions(plant_id, state.state),
+                    "actions": _build_notification_actions(
+                        plant_id, state.state, open_treatment_id
+                    ),
                     "tag": f"plant_care_{plant_id}",
                     "group": "plant_care",
                 }
@@ -497,6 +619,8 @@ class PlantCareCoordinator:
 
 
 def _build_reminder_message(name: str, status: str) -> str:
+    if status == STATUS_NEEDS_ATTENTION:
+        return f"🔍 {name}: Treatment-Check fällig."
     if status == STATUS_NEEDS_BOTH:
         return f"🌿 {name} braucht Wasser und Dünger."
     if status == STATUS_NEEDS_WATER:
@@ -507,13 +631,23 @@ def _build_reminder_message(name: str, status: str) -> str:
 
 
 def _build_notification_actions(
-    plant_id: str, status: str
+    plant_id: str,
+    status: str,
+    open_treatment_id: str | None = None,
 ) -> list[dict[str, str]]:
-    """Action-Buttons für die HA-Mobile-App-Notification.
-
-    Welche Buttons gezeigt werden, hängt vom Status ab. ``snooze`` ist
-    immer dabei, ``water`` / ``fertilize`` je nach Bedarf.
-    """
+    """Action-Buttons für die HA-Mobile-App-Notification."""
+    if status == STATUS_NEEDS_ATTENTION and open_treatment_id:
+        return [
+            {
+                "action": f"PLANTCARE_RESOLVE_{plant_id}_{open_treatment_id}",
+                "title": "✓ Erledigt",
+            },
+            {
+                "action": f"PLANTCARE_DISMISS_{plant_id}_{open_treatment_id}",
+                "title": "✗ Verwerfen",
+            },
+            {"action": f"PLANTCARE_SNOOZE_{plant_id}", "title": "💤 Snooze 1d"},
+        ]
     actions: list[dict[str, str]] = []
     if status in (STATUS_NEEDS_WATER, STATUS_NEEDS_BOTH):
         actions.append(

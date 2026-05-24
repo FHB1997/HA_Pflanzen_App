@@ -192,6 +192,45 @@ fertilize_plant:
       selector:
         datetime:
 
+diagnose_plant:
+  name: Pflanze diagnostizieren
+  description: >
+    Speichert ein AI-Diagnose-Ergebnis als Treatment-Eintrag. Der
+    eigentliche AI-Call (ai_task.generate_data) läuft im Frontend.
+  fields:
+    plant_id:
+      required: true
+      selector:
+        text:
+    photo_path:
+      required: true
+      selector:
+        text:
+    ai_response:
+      required: true
+      selector:
+        object:
+
+resolve_treatment:
+  name: Behandlung abschließen
+  description: Markiert ein offenes Treatment als erledigt oder verworfen.
+  fields:
+    plant_id:
+      required: true
+      selector:
+        text:
+    treatment_id:
+      required: true
+      selector:
+        text:
+    outcome:
+      default: resolved
+      selector:
+        select:
+          options:
+            - resolved
+            - dismissed
+
 add_plant_photo:
   name: Foto hinzufügen
   description: >

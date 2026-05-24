@@ -85,6 +85,20 @@ Cap pro Pflanze: 100 Fotos. Bei Überschreitung wird das älteste Foto
 automatisch entfernt (Datei wird mitgelöscht). Beim Löschen einer
 Pflanze werden alle ihre Fotos vom Disk entfernt.
 
+### Pflanzen-Sprechstunde
+
+Sieht eine Pflanze auffällig aus (gelbe Blätter, Schädlinge)? Im Detail-View
+**+ Was ist los?** tappen → Foto auswählen → die AI analysiert mögliche
+Ursachen und schlägt konkrete Behandlungsschritte vor. Speichern legt eine
+**Behandlung** mit Foto + Diagnose + Wiedervorlage-Datum an.
+
+Sobald die Wiedervorlage fällig ist, schaltet der Plant-Sensor auf Status
+`needs_attention` und Plant Care versendet eine Reminder-Notification mit
+den Buttons **✓ Erledigt** / **✗ Verwerfen** / **💤 Snooze 1d**.
+
+Voraussetzung: AI Task ist konfiguriert (HA 2025.7+). Anti-Spam-Throttle:
+mindestens 60s zwischen Diagnose-Anfragen pro Pflanze.
+
 ### Sensor-Verknüpfung
 
 Im Add/Edit-Formular einen Sensor auswählen. Die Logik:

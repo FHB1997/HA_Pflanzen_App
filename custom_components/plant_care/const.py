@@ -31,6 +31,7 @@ STATUS_OK: Final = "ok"
 STATUS_NEEDS_WATER: Final = "needs_water"
 STATUS_NEEDS_FERTILIZER: Final = "needs_fertilizer"
 STATUS_NEEDS_BOTH: Final = "needs_both"
+STATUS_NEEDS_ATTENTION: Final = "needs_attention"  # höchste Priorität (Treatments)
 
 # Foto-Storage (Phase 2.1 + Scaling-Stub in Phase 1)
 PHOTOS_DIRNAME: Final = "plant_care_photos"
@@ -47,6 +48,13 @@ MAX_PHOTOS_PER_PLANT: Final = 100
 # Service-Namen (Foto-Verlauf)
 SERVICE_ADD_PLANT_PHOTO: Final = "add_plant_photo"
 SERVICE_REMOVE_PLANT_PHOTO: Final = "remove_plant_photo"
+
+# Treatment-Service-Namen
+SERVICE_DIAGNOSE_PLANT: Final = "diagnose_plant"
+SERVICE_RESOLVE_TREATMENT: Final = "resolve_treatment"
+
+# Anti-Spam für AI-Diagnose
+MIN_DIAGNOSE_INTERVAL_SECONDS: Final = 60
 
 # Service-Namen
 SERVICE_ADD_PLANT: Final = "add_plant"

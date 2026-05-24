@@ -115,6 +115,51 @@ def parse_action_id(action_id: str) -> tuple[str, str] | None:
     return (parts[1], parts[2])
 
 
+def filter_open_treatments(treatments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Liefert nur Treatments mit ``status='open'``."""
+    return [t for t in treatments if t.get("status") == "open"]
+
+
+def has_overdue_treatment(
+    treatments: list[dict[str, Any]], now: datetime
+) -> bool:
+    """True wenn ein offenes Treatment fällig ist.
+
+    Fehlt ``follow_up_at``, gilt das Treatment als sofort fällig.
+    """
+    for treatment in treatments:
+        if treatment.get("status") != "open":
+            continue
+        follow_up_iso = treatment.get("follow_up_at")
+        if not follow_up_iso:
+            return True
+        follow_up = parse_iso(follow_up_iso)
+        if follow_up is None or now >= follow_up:
+            return True
+    return False
+
+
+def parse_treatment_action_id(
+    action_id: str,
+) -> tuple[str, str, str] | None:
+    """Zerlegt ``PLANTCARE_<RESOLVE|DISMISS>_<plant_id>_<treatment_id>``.
+
+    Returns:
+        Tuple ``(action, plant_id, treatment_id)`` oder ``None``.
+    """
+    if not action_id or not action_id.startswith("PLANTCARE_"):
+        return None
+    parts = action_id.split("_", 3)
+    if len(parts) < 4:
+        return None
+    _, action, plant_id, treatment_id = parts
+    if action not in ("RESOLVE", "DISMISS"):
+        return None
+    if not treatment_id:
+        return None
+    return (action, plant_id, treatment_id)
+
+
 def sort_photos(photos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sortiert Fotos descending nach ``taken_at`` (neuestes zuerst).
 

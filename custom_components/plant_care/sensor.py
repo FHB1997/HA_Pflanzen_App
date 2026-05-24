@@ -11,7 +11,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from ._utils import needs_time_based, try_float
+from ._utils import (
+    filter_open_treatments,
+    has_overdue_treatment,
+    needs_time_based,
+    try_float,
+)
 from .const import (
     DOMAIN,
     MOISTURE_LOW_PCT,
@@ -19,6 +24,7 @@ from .const import (
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
+    STATUS_NEEDS_ATTENTION,
     STATUS_NEEDS_BOTH,
     STATUS_NEEDS_FERTILIZER,
     STATUS_NEEDS_WATER,
@@ -82,6 +88,10 @@ class PlantSensor(SensorEntity):
             return STATUS_OK
         now = datetime.now(timezone.utc)
 
+        # 0) Treatment-Check hat Vorrang
+        if has_overdue_treatment(plant.get("treatments") or [], now):
+            return STATUS_NEEDS_ATTENTION
+
         # 1) Zeit-basiert für Wasser
         needs_water = needs_time_based(
             plant.get("last_watered"), plant.get("water_days"), now
@@ -140,6 +150,15 @@ class PlantSensor(SensorEntity):
             "room_type": plant.get("room_type", ""),
             "location_tips": plant.get("location_tips", ""),
             "suitability_warning": plant.get("suitability_warning", ""),
+            "treatments": plant.get("treatments", []),
+            "open_treatments_count": len(
+                filter_open_treatments(plant.get("treatments") or [])
+            ),
+            "latest_treatment": (
+                (plant.get("treatments") or [])[-1]
+                if plant.get("treatments")
+                else None
+            ),
             "water_history": plant.get("water_history", []),
             "fertilize_history": plant.get("fertilize_history", []),
             "created": plant.get("created"),

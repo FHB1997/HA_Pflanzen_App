@@ -12,6 +12,7 @@ const STATUS_LABEL = {
   needs_water: "Braucht Wasser",
   needs_fertilizer: "Braucht Dünger",
   needs_both: "Wasser + Dünger",
+  needs_attention: "🔍 Treatment-Check fällig",
 };
 
 const STATUS_CLASS = {
@@ -19,6 +20,7 @@ const STATUS_CLASS = {
   needs_water: "water",
   needs_fertilizer: "fert",
   needs_both: "both",
+  needs_attention: "attention",
 };
 
 const ROOM_ALL = "__all__";
@@ -56,6 +58,7 @@ class PlantCarePanel extends HTMLElement {
     this._bulkSelection = new Set();
     this._bulkBusy = false;
     this._lightbox = null;
+    this._diagnoseModal = null;
     this._addTab = "ai"; // ai | library
     this._aiBusy = false;
     this._lastStatesSignature = "";
@@ -476,6 +479,7 @@ class PlantCarePanel extends HTMLElement {
       this._bulkBusy ? 1 : 0,
       Array.from(this._bulkSelection).sort().join(","),
       JSON.stringify(this._lightbox || {}),
+      JSON.stringify(this._diagnoseModal || {}),
     ].join("|");
     if (!force && sig === this._lastStatesSignature) return;
     this._lastStatesSignature = sig;
@@ -501,6 +505,7 @@ class PlantCarePanel extends HTMLElement {
         <main class="main">${this._renderView()}</main>
         ${this._bulkMode && this._view === "list" ? this._renderBulkActionBar() : ""}
         ${this._lightbox ? this._renderLightbox() : ""}
+        ${this._diagnoseModal ? this._renderDiagnoseModal() : ""}
       </div>
     `;
 
@@ -891,6 +896,8 @@ class PlantCarePanel extends HTMLElement {
 
         ${this._renderLocationSection(p)}
 
+        ${this._renderTreatments(p)}
+
         ${this._renderPhotoHistory(p)}
 
         ${p.tips ? `
@@ -927,6 +934,190 @@ class PlantCarePanel extends HTMLElement {
         ` : ""}
       </section>
     `;
+  }
+
+  _renderTreatments(p) {
+    const treatments = Array.isArray(p.treatments) ? p.treatments : [];
+    const open = treatments.filter((t) => t.status === "open");
+    const closed = treatments.filter((t) => t.status !== "open");
+    const aiAvailable = !!this._findAiTaskEntity();
+    return `
+      <section class="treatments">
+        <h3>🔍 Behandlungen</h3>
+        <div class="treatment-actions">
+          <button class="btn ${aiAvailable ? "" : "disabled"}" data-action="open-diagnose" data-id="${this._escapeAttr(p.plant_id)}" ${aiAvailable ? "" : "disabled"} title="${aiAvailable ? "" : "AI Task nicht eingerichtet"}">
+            + Was ist los?
+          </button>
+        </div>
+        ${open.length === 0 && closed.length === 0 ? `
+          <p class="muted small">Noch keine Behandlungen dokumentiert.</p>
+        ` : ""}
+        ${open.map((t) => this._renderTreatmentCard(p.plant_id, t, false)).join("")}
+        ${closed.length > 0 ? `
+          <details class="closed-treatments">
+            <summary class="muted small">${closed.length} abgeschlossene Behandlung${closed.length === 1 ? "" : "en"}</summary>
+            ${closed.map((t) => this._renderTreatmentCard(p.plant_id, t, true)).join("")}
+          </details>
+        ` : ""}
+      </section>
+    `;
+  }
+
+  _renderTreatmentCard(plantId, t, closed) {
+    const dateStr = t.started_at ? this._relativeTime(t.started_at) : "";
+    const dueStr = t.follow_up_at && !closed ? this._relativeTime(t.follow_up_at) : "";
+    const confidence = typeof t.confidence === "number" ? Math.round(t.confidence * 100) : null;
+    return `
+      <article class="treatment-card ${closed ? "closed" : "open"}">
+        <header>
+          <span class="treatment-icon">${closed ? (t.status === "resolved" ? "✓" : "✗") : "⚠"}</span>
+          <strong>${this._escape(t.diagnosis || "")}</strong>
+          ${confidence !== null ? `<span class="muted small">(${confidence}% sicher)</span>` : ""}
+        </header>
+        <p class="muted small">Begonnen: ${this._escape(dateStr)}${dueStr ? ` · Fällig: ${this._escape(dueStr)}` : ""}</p>
+        ${Array.isArray(t.treatment_steps) && t.treatment_steps.length > 0 ? `
+          <ol class="treatment-steps">
+            ${t.treatment_steps.map((s) => `<li>${this._escape(s)}</li>`).join("")}
+          </ol>
+        ` : ""}
+        ${!closed ? `
+          <div class="treatment-actions-row">
+            <button class="btn primary small" data-action="resolve-treatment" data-id="${this._escapeAttr(plantId)}" data-treatment="${this._escapeAttr(t.id)}">✓ Erledigt</button>
+            <button class="btn ghost small" data-action="dismiss-treatment" data-id="${this._escapeAttr(plantId)}" data-treatment="${this._escapeAttr(t.id)}">✗ Verwerfen</button>
+          </div>
+        ` : ""}
+      </article>
+    `;
+  }
+
+  _renderDiagnoseModal() {
+    if (!this._diagnoseModal) return "";
+    const { plantId, busy, result, error } = this._diagnoseModal;
+    const plant = this._plantById(plantId);
+    if (!plant) return "";
+    return `
+      <div class="lightbox" data-action="close-diagnose">
+        <div class="lightbox-content" data-stop style="max-width:560px">
+          <header class="lightbox-header">
+            <h3>Diagnose: ${this._escape(plant.name)}</h3>
+          </header>
+          <div class="diagnose-body">
+            ${result ? this._renderDiagnoseResult(plant, result) :
+              busy ? `<p>⏳ Foto wird analysiert…</p>` :
+              error ? `<p class="error">${this._escape(error)}</p>` :
+              `<p class="muted">Bitte ein Foto auswählen.</p>
+               <button class="btn primary" data-action="pick-diagnose-photo" data-id="${this._escapeAttr(plantId)}">📷 Foto auswählen</button>
+               <input type="file" accept="image/*" id="diagnose-photo-input" style="display:none">`
+            }
+          </div>
+          <footer class="lightbox-footer">
+            ${result && result.shouldSave ? `
+              <button class="btn primary" data-action="save-diagnose" data-id="${this._escapeAttr(plantId)}">✓ Speichern</button>
+            ` : ""}
+            <button class="btn ghost" data-action="close-diagnose-btn">Schließen</button>
+          </footer>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderDiagnoseResult(plant, result) {
+    const conf = typeof result.confidence === "number" ? Math.round(result.confidence * 100) : null;
+    const healthy = (result.confidence ?? 1) < 0.5 || /keine auffäl/i.test(result.diagnosis || "");
+    if (healthy) {
+      return `<p style="font-size:1.1rem;color:var(--sage)">✓ Sieht gesund aus!</p>
+              <p class="muted">${this._escape(result.diagnosis || "")}</p>`;
+    }
+    const steps = Array.isArray(result.treatment_steps) ? result.treatment_steps : [];
+    return `
+      <strong>${this._escape(result.diagnosis || "Diagnose")}</strong>
+      ${conf !== null ? `<p class="muted small">Konfidenz: ${conf}%</p>` : ""}
+      ${steps.length ? `
+        <p style="margin-top:12px"><strong>Empfohlene Schritte:</strong></p>
+        <ol>${steps.map((s) => `<li>${this._escape(s)}</li>`).join("")}</ol>
+      ` : ""}
+      <p class="muted small">Wiedervorlage in ${result.follow_up_days || 7} Tagen.</p>
+    `;
+  }
+
+  async _runDiagnose(plantId, file) {
+    if (!file || !file.type.startsWith("image/")) {
+      this._showToast("error", "Bitte ein Bild auswählen");
+      return;
+    }
+    const aiEntity = this._findAiTaskEntity();
+    if (!aiEntity) {
+      this._showToast("error", "AI Task nicht eingerichtet");
+      return;
+    }
+    this._diagnoseModal = { plantId, busy: true };
+    this._render();
+    try {
+      const dataUrl = await this._resizeImage(file);
+      const upload = await this._uploadPhotoToBackend(dataUrl);
+      const res = await this._callServiceWithResponse(
+        "ai_task", "generate_data",
+        {
+          entity_id: aiEntity,
+          task_name: "plant_care_diagnose",
+          instructions:
+            "Du bist erfahrener Botaniker und Pflanzenarzt. Auf dem angehängten Foto " +
+            "ist eine Pflanze. Analysiere mögliche Schädlinge, Krankheiten oder " +
+            "Pflegefehler. Wenn die Pflanze gesund aussieht: diagnosis='Keine " +
+            "Auffälligkeiten erkannt', confidence < 0.5. Antworte ausschließlich " +
+            "im vorgegebenen JSON-Schema.",
+          attachments: [
+            {
+              media_content_id: upload.media_content_id,
+              media_content_type: upload.media_content_type || "image/jpeg",
+            },
+          ],
+          structure: {
+            diagnosis: { selector: { text: { multiline: true } } },
+            confidence: { selector: { number: { min: 0, max: 1 } } },
+            treatment_steps: { selector: { object: {} } },
+            follow_up_days: { selector: { number: { min: 1, max: 30 } } },
+            severity: { selector: { select: { options: ["low", "medium", "high"] } } },
+          },
+        },
+      );
+      const data = res?.data ?? res?.response?.data ?? res ?? {};
+      const healthy = (data.confidence ?? 1) < 0.5 ||
+        /keine auffäl/i.test(data.diagnosis || "");
+      this._diagnoseModal = {
+        plantId,
+        busy: false,
+        result: { ...data, shouldSave: !healthy, photo_path: upload.path },
+      };
+    } catch (err) {
+      console.error(err);
+      this._diagnoseModal = { plantId, busy: false, error: this._fmtErr(err) };
+    } finally {
+      this._render();
+    }
+  }
+
+  async _saveDiagnose(plantId) {
+    const modal = this._diagnoseModal;
+    if (!modal?.result?.shouldSave) return;
+    try {
+      await this._callServiceWithResponse("plant_care", "diagnose_plant", {
+        plant_id: plantId,
+        photo_path: modal.result.photo_path,
+        ai_response: {
+          diagnosis: modal.result.diagnosis,
+          confidence: modal.result.confidence,
+          treatment_steps: modal.result.treatment_steps,
+          follow_up_days: modal.result.follow_up_days,
+          severity: modal.result.severity,
+        },
+      });
+      this._showToast("success", "Behandlung dokumentiert");
+      this._diagnoseModal = null;
+      this._setState({});
+    } catch (err) {
+      this._showToast("error", this._fmtErr(err));
+    }
   }
 
   _renderPhotoHistory(p) {
@@ -1089,6 +1280,52 @@ class PlantCarePanel extends HTMLElement {
         this._setState({});
         break;
       }
+      case "open-diagnose":
+        this._diagnoseModal = { plantId: id, busy: false };
+        this._setState({});
+        break;
+      case "close-diagnose":
+        // Click auf Backdrop schließt; Click im Content nicht.
+        if (evt.target.closest("[data-stop]")) break;
+        if (this._diagnoseModal?.busy) break;
+        this._diagnoseModal = null;
+        this._setState({});
+        break;
+      case "close-diagnose-btn":
+        if (this._diagnoseModal?.busy) break;
+        this._diagnoseModal = null;
+        this._setState({});
+        break;
+      case "pick-diagnose-photo": {
+        const input = this.shadowRoot.getElementById("diagnose-photo-input");
+        if (input) {
+          input.onchange = (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) this._runDiagnose(id, file);
+          };
+          input.click();
+        }
+        break;
+      }
+      case "save-diagnose":
+        this._saveDiagnose(id);
+        break;
+      case "resolve-treatment":
+        this._callService("plant_care", "resolve_treatment", {
+          plant_id: id,
+          treatment_id: target.dataset.treatment,
+          outcome: "resolved",
+        }).then(() => this._showToast("success", "Behandlung erledigt"))
+          .catch((err) => this._showToast("error", this._fmtErr(err)));
+        break;
+      case "dismiss-treatment":
+        this._callService("plant_care", "resolve_treatment", {
+          plant_id: id,
+          treatment_id: target.dataset.treatment,
+          outcome: "dismissed",
+        }).then(() => this._showToast("success", "Behandlung verworfen"))
+          .catch((err) => this._showToast("error", this._fmtErr(err)));
+        break;
       case "add-photo": {
         evt.preventDefault();
         const input = this.shadowRoot.getElementById("add-photo-input");
@@ -1692,6 +1929,44 @@ class PlantCarePanel extends HTMLElement {
         padding: 4px 6px;
       }
       .warning-dismiss:hover { color: var(--primary-text-color); }
+
+      .status.attention { background: rgba(245, 158, 11, 0.15); color: #b45309; }
+
+      .treatments { margin-bottom: 20px; }
+      .treatments h3 { margin: 0 0 8px; font-size: 1rem; }
+      .treatment-actions { margin-bottom: 8px; }
+      .treatment-card {
+        background: rgba(245, 158, 11, 0.08);
+        border-left: 3px solid #f59e0b;
+        border-radius: 8px;
+        padding: 12px;
+        margin: 8px 0;
+      }
+      .treatment-card.closed {
+        background: rgba(0,0,0,0.04);
+        border-left-color: var(--sage);
+        opacity: 0.85;
+      }
+      .treatment-card header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+        flex-wrap: wrap;
+      }
+      .treatment-icon { font-size: 1.1rem; }
+      .treatment-steps { margin: 8px 0; padding-left: 20px; }
+      .treatment-steps li { margin: 2px 0; }
+      .treatment-actions-row { display: flex; gap: 8px; margin-top: 8px; }
+      .closed-treatments { margin-top: 12px; }
+      .closed-treatments summary { cursor: pointer; padding: 4px 0; }
+      .diagnose-body {
+        padding: 16px;
+        background: var(--card-background-color, #fff);
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+      .diagnose-body .error { color: var(--error-color, #c92a2a); }
 
       .photo-history { margin-bottom: 20px; }
       .photo-history h3 { margin: 0 0 8px; font-size: 1rem; }
