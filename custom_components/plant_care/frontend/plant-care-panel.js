@@ -42,8 +42,6 @@ const LIGHT_LABELS = {
   schatten: "Schatten (weit vom Fenster)",
 };
 
-let _libraryCache = null;
-
 class PlantCarePanel extends HTMLElement {
   constructor() {
     super();
@@ -62,7 +60,6 @@ class PlantCarePanel extends HTMLElement {
     this._calendarEvents = null;
     this._calendarLoading = false;
     this._calendarDays = 14;
-    this._addTab = "ai"; // ai | library
     this._aiBusy = false;
     this._lastStatesSignature = "";
     this._onClick = this._onClick.bind(this);
@@ -399,22 +396,6 @@ class PlantCarePanel extends HTMLElement {
     }
   }
 
-  /* --------------------------- Plant Library ----------------------------- */
-
-  async _loadLibrary() {
-    if (_libraryCache) return _libraryCache;
-    try {
-      const res = await fetch("/plant_care_frontend/plant_library.json");
-      if (!res.ok) throw new Error("Bibliothek nicht gefunden");
-      _libraryCache = await res.json();
-      return _libraryCache;
-    } catch (err) {
-      console.error(err);
-      _libraryCache = [];
-      return _libraryCache;
-    }
-  }
-
   /* --------------------------------- Toast ------------------------------- */
 
   _showToast(kind, msg) {
@@ -473,7 +454,6 @@ class PlantCarePanel extends HTMLElement {
     const sig = [
       this._view,
       this._selectedId || "",
-      this._addTab,
       this._roomFilter,
       this._aiBusy ? 1 : 0,
       this._toast ? this._toast.msg : "",
@@ -814,21 +794,11 @@ class PlantCarePanel extends HTMLElement {
     const draft = this._draft || {};
     const aiAvailable = !!this._findAiTaskEntity();
     const sensors = this._findMoistureSensors();
-    const tab = mode === "add" ? this._addTab : "ai";
 
     return `
       <h2 class="page-title">${mode === "edit" ? "Pflanze bearbeiten" : "Neue Pflanze"}</h2>
 
-      ${mode === "add" ? `
-        <div class="tabs">
-          <button class="tab ${tab === "ai" ? "active" : ""}" data-action="set-tab" data-tab="ai" type="button">KI-Vorschlag</button>
-          <button class="tab ${tab === "library" ? "active" : ""}" data-action="set-tab" data-tab="library" type="button">Bibliothek</button>
-        </div>
-      ` : ""}
-
       <form>
-        ${mode === "add" && tab === "library" ? this._renderLibraryPicker() : ""}
-
         <section class="form-section">
           <header class="form-section-head">
             <span class="form-section-label">Identifikation</span>
@@ -837,19 +807,17 @@ class PlantCarePanel extends HTMLElement {
             <span>Name *</span>
             <input name="name" value="${this._escapeAttr(draft.name || "")}" required autocomplete="off">
           </label>
-          ${tab === "ai" ? `
-            <div class="ai-actions">
-              <button type="button" class="btn ${aiAvailable ? "" : "disabled"}" data-action="ai-suggest" ${!aiAvailable ? "disabled" : ""} title="${aiAvailable ? "" : "AI Task nicht eingerichtet"}">
-                ${this._aiBusy ? "⏳ …" : "✨ KI-Vorschlag"}
+          <div class="ai-actions">
+            <button type="button" class="btn ${aiAvailable ? "" : "disabled"}" data-action="ai-suggest" ${!aiAvailable ? "disabled" : ""} title="${aiAvailable ? "" : "AI Task nicht eingerichtet"}">
+              ${this._aiBusy ? "⏳ …" : "✨ KI-Vorschlag"}
+            </button>
+            ${aiAvailable ? `
+              <button type="button" class="btn" data-action="photo-identify" ${this._aiBusy ? "disabled" : ""}>
+                📷 Per Foto erkennen
               </button>
-              ${aiAvailable ? `
-                <button type="button" class="btn" data-action="photo-identify" ${this._aiBusy ? "disabled" : ""}>
-                  📷 Per Foto erkennen
-                </button>
-                <input type="file" accept="image/*" id="photo-identify-input" style="display:none">
-              ` : ""}
-            </div>
-          ` : ""}
+              <input type="file" accept="image/*" id="photo-identify-input" style="display:none">
+            ` : ""}
+          </div>
         </section>
 
         <section class="form-section">
@@ -983,31 +951,6 @@ class PlantCarePanel extends HTMLElement {
             <label class="radio-pill"><input type="radio" name="light_level" value="schatten"     ${lightValue === "schatten"     ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.schatten)}</span></label>
           </div>
         </div>
-      </div>
-    `;
-  }
-
-  _renderLibraryPicker() {
-    const lib = _libraryCache;
-    if (lib === null) {
-      // force=true: _libraryCache ist modul-global, nicht Teil der
-      // Render-Signatur → ohne force greift der Signatur-Cache und
-      // die "wird geladen…"-Meldung bleibt stehen.
-      this._loadLibrary().then(() => this._render(true));
-      return `<p class="muted">Bibliothek wird geladen...</p>`;
-    }
-    if (!lib.length) {
-      return `<p class="muted">Bibliothek ist leer.</p>`;
-    }
-    return `
-      <div class="library">
-        ${lib.slice(0, 60).map((entry) => `
-          <button type="button" class="lib-item" data-action="lib-pick" data-species="${this._escapeAttr(entry.species || "")}">
-            <strong>${this._escape(entry.common_name || entry.species)}</strong>
-            <small class="muted">${this._escape(entry.species || "")}</small>
-            <small class="muted">💧 ${entry.water_days}T · 🌱 ${entry.fertilize_days}T</small>
-          </button>
-        `).join("")}
       </div>
     `;
   }
@@ -1610,7 +1553,6 @@ class PlantCarePanel extends HTMLElement {
         break;
       case "new":
         this._draft = {};
-        this._addTab = "ai";
         this._setState({ _view: "add" });
         break;
       case "back":
@@ -1679,30 +1621,6 @@ class PlantCarePanel extends HTMLElement {
       case "filter-room":
         this._setState({ _roomFilter: target.dataset.room });
         break;
-      case "set-tab":
-        this._addTab = target.dataset.tab;
-        if (this._addTab === "library") this._loadLibrary();
-        this._render();
-        break;
-      case "lib-pick": {
-        evt.preventDefault();
-        const species = target.dataset.species;
-        const entry = (_libraryCache || []).find((e) => e.species === species);
-        if (entry) {
-          this._draft = {
-            ...(this._draft || {}),
-            name: entry.common_name || entry.species,
-            species: entry.species,
-            common_name: entry.common_name,
-            water_days: entry.water_days,
-            fertilize_days: entry.fertilize_days,
-            tips: entry.tips,
-          };
-          this._addTab = "ai";
-          this._render();
-        }
-        break;
-      }
     }
   }
 
@@ -2422,25 +2340,6 @@ class PlantCarePanel extends HTMLElement {
         border-radius: 12px;
         padding: 20px;
       }
-      .tabs {
-        display: flex;
-        gap: 4px;
-        margin-bottom: 16px;
-        border-bottom: 1px solid var(--divider-color, #e8e8e8);
-      }
-      .tab {
-        background: transparent;
-        border: none;
-        padding: 10px 18px;
-        cursor: pointer;
-        font-family: inherit;
-        font-size: 0.95rem;
-        color: inherit;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-      }
-      .tab.active { border-bottom-color: var(--sage); color: var(--sage); font-weight: 600; }
-
       /* Form-Sections – setzen thematisch zusammengehörige Felder ab. */
       .form-section {
         position: relative;
@@ -2524,30 +2423,6 @@ class PlantCarePanel extends HTMLElement {
         border-radius: 8px;
         border: 1px solid var(--divider-color, #d4d4d4);
       }
-
-      .library {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 8px;
-        margin-bottom: 16px;
-        max-height: 380px;
-        overflow-y: auto;
-      }
-      .lib-item {
-        text-align: left;
-        background: var(--secondary-background-color, #fafafa);
-        border: 1px solid var(--divider-color, #e8e8e8);
-        border-radius: 8px;
-        padding: 10px;
-        cursor: pointer;
-        font-family: inherit;
-        color: inherit;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-      .lib-item:hover { background: var(--sage-bg); }
-      .lib-item strong { font-size: 0.95rem; }
 
       .actions {
         display: flex;
