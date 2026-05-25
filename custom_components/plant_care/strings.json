@@ -38,8 +38,7 @@
         "water_days": { "name": "Watering interval (days)", "description": "Days between waterings" },
         "fertilize_days": { "name": "Fertilizing interval (days)", "description": "Days between fertilizing" },
         "moisture_sensor": { "name": "Moisture sensor", "description": "Optional soil moisture sensor" },
-        "photo": { "name": "Photo", "description": "Data URL or path" },
-        "tips": { "name": "Care tips", "description": "Free-text notes" }
+        "photo": { "name": "Photo", "description": "Data URL or path" }
       }
     },
     "update_plant": {

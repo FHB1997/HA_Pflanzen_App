@@ -53,12 +53,6 @@ add_plant:
       selector:
         text:
           multiline: true
-    tips:
-      name: Pflegetipps
-      description: Freitext-Notizen.
-      selector:
-        text:
-          multiline: true
     light_level:
       name: Lichtintensität
       description: vollsonne / hell / halbschatten / schatten
@@ -125,10 +119,6 @@ update_plant:
         entity:
           domain: sensor
     photo:
-      selector:
-        text:
-          multiline: true
-    tips:
       selector:
         text:
           multiline: true

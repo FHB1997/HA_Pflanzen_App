@@ -150,7 +150,6 @@ class PlantSensor(SensorEntity):
             "photo": plant.get("photo", ""),
             "photos": plant.get("photos", []),
             "photos_count": len(plant.get("photos") or []),
-            "tips": plant.get("tips", ""),
             "light_level": plant.get("light_level", ""),
             "room_type": plant.get("room_type", ""),
             "suitability_warning": plant.get("suitability_warning", ""),

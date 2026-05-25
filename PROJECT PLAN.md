@@ -152,7 +152,7 @@ plant-care-ha/
 
 - ✅ Config Flow (einmalige Einrichtung) + Options-Flow mit Test-Benachrichtigung
 - ✅ Storage-Persistenz via `homeassistant.helpers.storage.Store`
-- ✅ One-Time-Migration: `location_tips` → `tips` (konsolidiert)
+- ✅ One-Time-Migrationen: `location_tips` → `tips` → `plant_description` (alles in der konsolidierten Beschreibung)
 - ✅ Services: `add_plant`, `update_plant`, `remove_plant`, `water_plant`, `fertilize_plant`, `send_reminders`, `send_test_notification`, `add_plant_photo`, `remove_plant_photo`, `diagnose_plant` (KI **oder** manuell), `resolve_treatment`, `get_events`
 - ✅ Sensor-Entities pro Pflanze mit dynamischer Status-Berechnung
 - ✅ Sensor-Übersteuerung (<20% / >50%) für moisture_sensor
@@ -167,10 +167,11 @@ plant-care-ha/
 
 ### Frontend
 
-- ✅ Listenansicht (Grid) mit Pflanzenkarten + Quick-Actions (💧/🌱) auf jeder Karte
-- ✅ Detail-Ansicht mit kompaktem Header, Quick-Actions unter dem Foto, Wiki-Text, kombinierten Tipps, Treatments-Block, Foto-Verlauf, Verlaufsdiagrammen
+- ✅ Listenansicht in zwei Modi: Grid (Kacheln) und Compact (Row-List mit kleinem Round-Photo); Auswahl via localStorage persistent
+- ✅ Quick-Actions (💧/🌱) auf jeder Karte in beiden Modi
+- ✅ Detail-Ansicht mit kompaktem Header (Raum / Licht / Position inline), aufgehübschten Gradient-Quick-Actions, einer einzigen "Über diese Pflanze"-Sektion (4-6 Sätze konsolidiert), Treatments-Block, Foto-Verlauf, Verlaufsdiagrammen
 - ✅ Add-/Edit-Formular mit Foto-Upload (Resize auf 600px, JPEG 0.82)
-- ✅ KI-Vorschlag via `ai_task.generate_data` (Structured Output) – kombinierte Pflege- & Standort-Tipps in einem Feld, plus Wiki-Beschreibung
+- ✅ KI-Vorschlag via `ai_task.generate_data` (Structured Output) – konsolidierte Beschreibung in `plant_description` (Herkunft + Pflege + Standort)
 - ✅ Foto-Erkennung mit Konfidenz-Anzeige
 - ✅ Behandlungs-Modal mit Mode-Picker (📷 Foto-Diagnose / ✏️ Manuell)
 - ✅ Bulk-Modus für Mehrfach-Selektion (Gegossen / Gedüngt)

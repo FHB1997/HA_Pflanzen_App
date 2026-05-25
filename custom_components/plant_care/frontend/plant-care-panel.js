@@ -61,6 +61,7 @@ class PlantCarePanel extends HTMLElement {
     this._calendarLoading = false;
     this._calendarDays = 14;
     this._aiBusy = false;
+    this._listMode = this._loadListMode();
     this._lastStatesSignature = "";
     this._onClick = this._onClick.bind(this);
     this._onSubmit = this._onSubmit.bind(this);
@@ -96,6 +97,23 @@ class PlantCarePanel extends HTMLElement {
   _setState(patch) {
     Object.assign(this, patch);
     this._render(true);
+  }
+
+  _loadListMode() {
+    try {
+      const m = localStorage.getItem("plant_care_list_mode");
+      return m === "compact" ? "compact" : "grid";
+    } catch {
+      return "grid";
+    }
+  }
+
+  _saveListMode(mode) {
+    try {
+      localStorage.setItem("plant_care_list_mode", mode);
+    } catch {
+      // localStorage kann gesperrt sein (Inkognito, etc.) – egal.
+    }
   }
 
   _plants() {
@@ -199,7 +217,6 @@ class PlantCarePanel extends HTMLElement {
       common_name: { selector: { text: {} } },
       water_days: { selector: { number: { min: 1, max: 90 } } },
       fertilize_days: { selector: { number: { min: 1, max: 180 } } },
-      tips: { selector: { text: { multiline: true } } },
       plant_description: { selector: { text: { multiline: true } } },
     };
   }
@@ -246,9 +263,8 @@ class PlantCarePanel extends HTMLElement {
             `\n\nGib zurück:\n` +
             `- Spezies (botanisch), deutscher Trivialname\n` +
             `- Gieß- und Düngeintervalle in Tagen, passend zum genannten Licht-Level (bei wenig Licht seltener, bei Vollsonne öfter)\n` +
-            `- Pflege- und Standort-Tipps kombiniert in einem kurzen Text (Feld tips, 3-5 Sätze): die wichtigsten Pflegehinweise plus was beim genannten Raum + Licht zu beachten ist.\n` +
             `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung im Feld suitability_warning. Sonst leeres Feld.\n` +
-            `- Eine kurze Wiki-artige Beschreibung der Pflanze (Herkunft, Familie, charakteristische Merkmale, 2-4 Sätze) im Feld plant_description.\n` +
+            `- Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. Ein zusammenhängender Text, keine Aufzählung.\n` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           structure: this._suggestStructureWithLocation(),
         },
@@ -285,9 +301,8 @@ class PlantCarePanel extends HTMLElement {
             this._qaContextString(this._draft || {}) +
             `\n\nGib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, ` +
             `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level. ` +
-            `Im Feld tips: kombinierte Pflege- und Standort-Tipps (3-5 Sätze) – die wichtigsten Pflegehinweise plus was beim genannten Raum + Licht zu beachten ist. ` +
             `Im Feld suitability_warning: falls Standort ungeeignet, eine kurze Begründung; sonst leer. ` +
-            `Zusätzlich eine kurze Wiki-artige Beschreibung der Pflanze (Herkunft, Familie, charakteristische Merkmale, 2-4 Sätze) im Feld plant_description. ` +
+            `Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. Ein zusammenhängender Text, keine Aufzählung. ` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           attachments: [
             {
@@ -496,6 +511,7 @@ class PlantCarePanel extends HTMLElement {
             <button class="btn ghost" data-action="bulk-cancel">Abbrechen</button>
           ` : `
             <button class="btn ghost" data-action="show-calendar">📅 Kalender</button>
+            <button class="btn ghost icon-only" data-action="toggle-list-mode" title="${this._listMode === "compact" ? "Kachel-Ansicht" : "Kompakte Liste"}" aria-label="Ansicht wechseln">${this._listMode === "compact" ? "▦" : "☰"}</button>
             <button class="btn ghost" data-action="bulk-toggle">☑ Auswahl</button>
             <button class="btn primary" data-action="new">+ Neue Pflanze</button>
           `) : this._view === "calendar" ? `
@@ -585,9 +601,41 @@ class PlantCarePanel extends HTMLElement {
           ` : ""}
         </nav>
       ` : ""}
-      <div class="grid">
-        ${filtered.map((p) => this._renderCard(p)).join("")}
+      <div class="${this._listMode === "compact" ? "list-compact" : "grid"}">
+        ${filtered.map((p) => this._listMode === "compact" ? this._renderRowCard(p) : this._renderCard(p)).join("")}
       </div>
+    `;
+  }
+
+  _renderRowCard(p) {
+    const status = p.state || "ok";
+    const selected = this._bulkMode && this._bulkSelection.has(p.plant_id);
+    const cardClass = `row-card${this._bulkMode ? " bulk" : ""}${selected ? " selected" : ""}`;
+    const action = this._bulkMode ? "bulk-toggle-card" : "open-detail";
+    return `
+      <article class="${cardClass}" data-action="${action}" data-id="${this._escapeAttr(p.plant_id)}">
+        ${this._bulkMode ? `
+          <div class="bulk-check ${selected ? "checked" : ""}" aria-hidden="true">${selected ? "✓" : ""}</div>
+        ` : ""}
+        <div class="row-photo">
+          ${p.photo
+            ? `<img src="${this._escapeAttr(p.photo)}" alt="">`
+            : `<div class="thumb-placeholder small">🌱</div>`}
+        </div>
+        <div class="row-info">
+          <div class="row-title">${this._escape(p.name)}</div>
+          <div class="row-meta">
+            <span class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</span>
+            <span class="muted small">💧 ${this._escape(this._relativeTime(p.last_watered))}</span>
+          </div>
+        </div>
+        ${this._bulkMode ? "" : `
+          <div class="row-actions">
+            <button class="card-action-btn" data-action="water" data-id="${this._escapeAttr(p.plant_id)}" aria-label="Gießen" title="Gießen">💧</button>
+            <button class="card-action-btn" data-action="fertilize" data-id="${this._escapeAttr(p.plant_id)}" aria-label="Düngen" title="Düngen">🌱</button>
+          </div>
+        `}
+      </article>
     `;
   }
 
@@ -913,12 +961,8 @@ class PlantCarePanel extends HTMLElement {
             ` : ""}
           </label>
           <label class="field">
-            <span>Pflege- &amp; Standort-Tipps</span>
-            <textarea name="tips" rows="4" placeholder="Freitext, von KI gefüllt oder selbst notiert. Pflege und Standort kombiniert.">${this._escape(draft.tips || "")}</textarea>
-          </label>
-          <label class="field">
-            <span>Beschreibung (Wiki)</span>
-            <textarea name="plant_description" rows="3" placeholder="Kurzer Wiki-Text, von KI gefüllt oder selbst notiert">${this._escape(draft.plant_description || "")}</textarea>
+            <span>Über diese Pflanze</span>
+            <textarea name="plant_description" rows="6" placeholder="Von KI gefüllt oder selbst notiert. 4-6 Sätze: Herkunft + Pflege + Standort-Hinweise in einem zusammenhängenden Text.">${this._escape(draft.plant_description || "")}</textarea>
           </label>
         </section>
 
@@ -992,9 +1036,10 @@ class PlantCarePanel extends HTMLElement {
           <div class="detail-meta">
             <h2>${this._escape(p.name)}</h2>
             ${p.species ? `<p class="species muted">${this._escape(p.species)}</p>` : ""}
-            ${(p.room_type || p.location) ? `
+            ${(p.room_type || p.light_level || p.location) ? `
               <p class="facts muted">
                 ${p.room_type ? `<span>🏠 ${this._escape(ROOM_LABELS[p.room_type] || p.room_type)}</span>` : ""}
+                ${p.light_level ? `<span>💡 ${this._escape(LIGHT_LABELS[p.light_level] || p.light_level)}</span>` : ""}
                 ${p.location ? `<span>📍 ${this._escape(p.location)}</span>` : ""}
               </p>
             ` : ""}
@@ -1018,9 +1063,7 @@ class PlantCarePanel extends HTMLElement {
           </button>
         </div>
 
-        ${this._renderWikiSection(p)}
-
-        ${this._renderCareLocationSection(p)}
+        ${this._renderAboutSection(p)}
 
         ${moistureValue !== null ? `
           <section class="moisture-section">
@@ -1042,44 +1085,21 @@ class PlantCarePanel extends HTMLElement {
     `;
   }
 
-  _renderWikiSection(p) {
-    if (!p.plant_description) return "";
-    return `
-      <section class="wiki-section">
-        <h3>🌿 Über diese Pflanze</h3>
-        <p>${this._escape(p.plant_description)}</p>
-      </section>
-    `;
-  }
-
-  _renderCareLocationSection(p) {
-    const room = p.room_type ? (ROOM_LABELS[p.room_type] || p.room_type) : "";
-    const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
-    const position = p.location || "";
-    const hasFacts = !!(room || light || position);
-    // Legacy-Daten: falls Storage-Migration noch nicht durchlief, location_tips
-    // hier zur Anzeige mit anhängen.
-    const legacy = (p.location_tips || "").trim();
+  _renderAboutSection(p) {
+    // Legacy-Konsolidierung: falls noch separates tips/location_tips
+    // existiert (vor Migration auf plant_description), in einen Text mergen.
+    const desc = (p.plant_description || "").trim();
     const tips = (p.tips || "").trim();
-    const combined = legacy && tips !== legacy
-      ? (tips ? `${tips}\n\n${legacy}` : legacy)
-      : tips;
-    if (!combined && !hasFacts) return "";
-    const facts = [
-      room ? `Raum: ${room}` : "",
-      light ? `Licht: ${light}` : "",
-      position ? `Position: ${position}` : "",
-    ].filter(Boolean).join(" · ");
+    const legacy = (p.location_tips || "").trim();
+    const parts = [desc];
+    if (tips && !desc.includes(tips)) parts.push(tips);
+    if (legacy && !desc.includes(legacy) && !tips.includes(legacy)) parts.push(legacy);
+    const combined = parts.filter(Boolean).join("\n\n");
+    if (!combined) return "";
     return `
-      <section class="care-location-section">
-        <h3>💡 Pflege & Standort</h3>
-        ${facts ? `<p class="muted small care-location-facts">${this._escape(facts)}</p>` : ""}
-        ${combined ? `
-          <div class="info-banner">
-            <strong>🌱 Tipps</strong>
-            <p>${this._escape(combined)}</p>
-          </div>
-        ` : ""}
+      <section class="about-section">
+        <h3>🌿 Über diese Pflanze</h3>
+        <p>${this._escape(combined)}</p>
       </section>
     `;
   }
@@ -1490,6 +1510,11 @@ class PlantCarePanel extends HTMLElement {
         this._view = "list";
         this._setState({});
         break;
+      case "toggle-list-mode":
+        this._listMode = this._listMode === "compact" ? "grid" : "compact";
+        this._saveListMode(this._listMode);
+        this._setState({});
+        break;
       case "calendar-more":
         this._calendarDays = Math.min(180, this._calendarDays + 14);
         this._loadCalendar();
@@ -1680,15 +1705,16 @@ class PlantCarePanel extends HTMLElement {
         const p = this._plantById(id);
         if (p) {
           // Alle persistierten Felder in den Draft kopieren, damit das
-          // Edit-Form keine Werte verliert und die Q&A-/Tips-Banner
-          // korrekt vorbelegt sind.
-          // Legacy: location_tips in tips mergen, falls Storage-Migration
-          // noch nicht lief.
-          const legacyTips = (p.location_tips || "").trim();
-          const baseTips = (p.tips || "").trim();
-          const mergedTips = legacyTips && baseTips !== legacyTips
-            ? (baseTips ? `${baseTips}\n\n${legacyTips}` : legacyTips)
-            : (p.tips || "");
+          // Edit-Form keine Werte verliert.
+          // Legacy: tips + location_tips in plant_description mergen,
+          // falls Storage-Migration noch nicht lief.
+          const baseDesc = (p.plant_description || "").trim();
+          const legacyTips = (p.tips || "").trim();
+          const legacyLoc = (p.location_tips || "").trim();
+          const parts = [baseDesc];
+          if (legacyTips && !baseDesc.includes(legacyTips)) parts.push(legacyTips);
+          if (legacyLoc && !baseDesc.includes(legacyLoc) && !legacyTips.includes(legacyLoc)) parts.push(legacyLoc);
+          const mergedDesc = parts.filter(Boolean).join("\n\n");
           this._draft = {
             name: p.name,
             species: p.species,
@@ -1698,11 +1724,10 @@ class PlantCarePanel extends HTMLElement {
             fertilize_days: p.fertilize_days,
             moisture_sensor: p.moisture_sensor,
             photo: p.photo,
-            tips: mergedTips,
             light_level: p.light_level || "",
             room_type: p.room_type || "",
             suitability_warning: p.suitability_warning || "",
-            plant_description: p.plant_description || "",
+            plant_description: mergedDesc,
           };
           this._setState({ _view: "edit", _selectedId: id });
         }
@@ -2039,6 +2064,73 @@ class PlantCarePanel extends HTMLElement {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
         gap: 12px;
+      }
+      .list-compact {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .row-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--divider-color, #e8e8e8);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: transform .1s, box-shadow .15s;
+        position: relative;
+      }
+      .row-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      }
+      .row-card.bulk { user-select: none; }
+      .row-card.bulk.selected {
+        outline: 3px solid var(--sage);
+        outline-offset: -3px;
+      }
+      .row-photo {
+        flex: 0 0 56px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        overflow: hidden;
+        background: var(--sage-bg);
+      }
+      .row-photo img { width: 100%; height: 100%; object-fit: cover; }
+      .row-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .row-title {
+        font-weight: 600;
+        font-size: 1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .row-meta .status { margin: 0; padding: 2px 8px; font-size: 0.75rem; }
+      .row-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .thumb-placeholder.small { font-size: 1.6rem; }
+      .icon-only {
+        padding: 6px 10px;
+        font-size: 1.05rem;
+        line-height: 1;
       }
       .card {
         background: var(--card-background-color, #fff);
@@ -2654,24 +2746,51 @@ class PlantCarePanel extends HTMLElement {
 
       .quick-actions {
         display: flex;
-        gap: 10px;
-        margin-bottom: 20px;
+        gap: 12px;
+        margin-bottom: 22px;
       }
-      .quick-action {
+      .quick-action.btn {
         flex: 1;
         display: flex;
         align-items: center;
-        justify-content: flex-start;
+        justify-content: center;
         gap: 10px;
-        padding: 10px 14px;
+        padding: 14px 16px;
         min-width: 0;
+        border-radius: 14px;
+        border: none;
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #fff;
+        background: linear-gradient(135deg, var(--sage) 0%, var(--sage-light, #8fb392) 100%);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        cursor: pointer;
+        transition: transform .12s ease, box-shadow .15s ease, filter .15s ease;
       }
-      .quick-action .qa-icon { font-size: 1.15rem; line-height: 1; }
+      .quick-action.btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        filter: brightness(1.04);
+      }
+      .quick-action.btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), inset 0 1px 2px rgba(0, 0, 0, 0.1);
+      }
+      .quick-action .qa-icon {
+        font-size: 1.35rem;
+        line-height: 1;
+        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
+      }
       .quick-action .qa-label { font-weight: 600; }
       .quick-action .qa-meta {
         margin-left: auto;
-        font-size: 0.8rem;
+        font-size: 0.78rem;
+        font-weight: 500;
         opacity: 0.85;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;

@@ -5,9 +5,11 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant – mit eigener Sidebar, 
 ## Highlights
 
 - **Eigenes Sidebar-Panel** mit Listen-, Detail- und Bearbeitungsansicht
+- **Zwei Listen-Modi**: Kacheln oder kompakte Liste (umschaltbar, persistent)
 - **Quick-Actions** (💧 / 🌱) direkt auf jeder Pflanzen-Karte
 - **KI-Vorschläge** über HAs natives AI Task System – kein eigener API-Key nötig (Standort + Licht fließen in den Prompt ein)
 - **Foto-Erkennung** der Pflanzenart per Bild (ab HA 2025.7)
+- **Konsolidierte Pflanzen-Beschreibung** (4-6 Sätze: Herkunft + Pflege + Standort in einem Text)
 - **Behandlungs-Feature**: KI-Foto-Diagnose *oder* manuelle Textbeschreibung
 - **Sensor-Übersteuerung**: Bodenfeuchte-Sensor übersteuert die Zeit-Heuristik (<20% / >50%)
 - **Sensoren optional** – funktioniert auch komplett ohne Hardware

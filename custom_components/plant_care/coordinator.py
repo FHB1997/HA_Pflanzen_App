@@ -90,7 +90,7 @@ class PlantCareCoordinator:
         data = await self._store.async_load() or {}
         plants = data.get("plants", {}) if isinstance(data, dict) else {}
         # Safety-Net: fehlende Felder ergänzen, falls alte Storage-Daten existieren.
-        tips_migrated = 0
+        desc_migrated = 0
         for pid, plant in plants.items():
             plant.setdefault("id", pid)
             plant.setdefault("water_history", [])
@@ -102,21 +102,25 @@ class PlantCareCoordinator:
             plant.setdefault("room_type", "")
             plant.setdefault("suitability_warning", "")
             plant.setdefault("plant_description", "")
-            plant.setdefault("tips", "")
-            # Migration: location_tips wurde in tips konsolidiert.
-            legacy = plant.pop("location_tips", "") or ""
-            if legacy.strip():
-                existing = (plant.get("tips") or "").strip()
-                plant["tips"] = f"{existing}\n\n{legacy.strip()}" if existing else legacy.strip()
-                tips_migrated += 1
+            # Migrations: alles, was früher in location_tips oder tips lag,
+            # wandert in plant_description (4-6-Satz "Über diese Pflanze").
+            legacy_loc = (plant.pop("location_tips", "") or "").strip()
+            legacy_tips = (plant.pop("tips", "") or "").strip()
+            extras = [s for s in (legacy_tips, legacy_loc) if s]
+            if extras:
+                existing = (plant.get("plant_description") or "").strip()
+                merged = "\n\n".join([s for s in [existing, *extras] if s])
+                plant["plant_description"] = merged
+                desc_migrated += 1
             migrate_legacy_photo(plant)
             plant.setdefault("treatments", [])
         self._plants = plants
-        if tips_migrated:
+        if desc_migrated:
             await self._async_save_now()
             _LOGGER.info(
-                "Plant Care: location_tips bei %d Pflanze(n) in tips migriert",
-                tips_migrated,
+                "Plant Care: tips/location_tips bei %d Pflanze(n) in "
+                "plant_description konsolidiert",
+                desc_migrated,
             )
 
         migrated = await self._migrate_data_url_photos()
@@ -207,7 +211,6 @@ class PlantCareCoordinator:
             "fertilize_days": int(cleaned.get("fertilize_days", DEFAULT_FERTILIZE_DAYS)),
             "moisture_sensor": cleaned.get("moisture_sensor"),
             "photo": cleaned.get("photo", ""),
-            "tips": cleaned.get("tips", ""),
             "light_level": cleaned.get("light_level", ""),
             "room_type": cleaned.get("room_type", ""),
             "suitability_warning": cleaned.get("suitability_warning", ""),

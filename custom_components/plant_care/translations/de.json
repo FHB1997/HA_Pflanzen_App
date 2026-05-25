@@ -43,8 +43,7 @@
         "water_days": { "name": "Gießintervall (Tage)", "description": "Tage zwischen den Gießvorgängen" },
         "fertilize_days": { "name": "Düngeintervall (Tage)", "description": "Tage zwischen den Düngevorgängen" },
         "moisture_sensor": { "name": "Bodenfeuchte-Sensor", "description": "Optionaler Feuchte-Sensor" },
-        "photo": { "name": "Foto", "description": "Data-URL oder Pfad" },
-        "tips": { "name": "Pflegetipps", "description": "Freitext-Notizen" }
+        "photo": { "name": "Foto", "description": "Data-URL oder Pfad" }
       }
     },
     "update_plant": {

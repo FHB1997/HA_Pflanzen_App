@@ -5,13 +5,15 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant. Plant Care besteht aus e
 ## Features
 
 - Sidebar-Panel mit Listen-, Detail- und Bearbeitungsansicht
-- KI-Vorschläge für Pflegeintervalle und Pflanzenarten über HAs natives AI Task System (Standort + Licht fließen in den Prompt ein, Wiki-Beschreibung kommt mit)
+- KI-Vorschläge für Pflegeintervalle und Pflanzenarten über HAs natives AI Task System (Standort + Licht fließen in den Prompt ein)
 - Foto-basierte Pflanzenerkennung (ab HA 2025.7)
+- Konsolidierte „Über diese Pflanze"-Beschreibung (4-6 Sätze: Herkunft + Pflege + Standort-Hinweise als ein Text)
 - Behandlungs-Feature („Was ist los?") mit KI-Foto-Diagnose **oder** manueller Textbeschreibung
 - Optionale Verknüpfung mit Bodenfeuchte-Sensoren (übersteuert das Zeit-Intervall)
 - Verlaufsdiagramme für Gieß- und Düngevorgänge
 - Foto-Verlauf pro Pflanze (max. 100, FIFO)
 - Räume-Filter + Bulk-Aktionen für mehrere Pflanzen
+- Zwei Listen-Ansichten: Kacheln (Standard) oder Kompakte Liste (umschaltbar via ☰/▦ in der Topbar, Auswahl wird in localStorage gespeichert)
 - Quick-Action-Buttons (💧 / 🌱) direkt auf jeder Pflanzen-Karte
 - Pflege-Erinnerungen integriert *oder* via Blueprint, inkl. Test-Benachrichtigung
 - Lovelace Custom Card für reguläre Dashboards
@@ -56,15 +58,23 @@ Nach der Installation erscheint **Plant Care** in der Sidebar.
 Beim Anlegen kannst du optional **Raum** (Dropdown) und
 **Lichtintensität** angeben. Beide Werte fließen in den KI-Vorschlag
 ein → die KI passt Gieß- und Düngeintervalle daran an und liefert im
-Feld **Pflege- & Standort-Tipps** einen kombinierten Text (3-5 Sätze)
-mit den wichtigsten Pflegehinweisen *plus* dem, was beim genannten
-Raum + Licht zu beachten ist. Wenn der gewählte Standort für die
-Pflanze ungeeignet ist (z.B. Sukkulente im dunklen Bad), zeigt der
-Detail-View oben ein oranges Warnbanner.
+Feld **Über diese Pflanze** einen zusammenhängenden 4-6-Satz-Text mit
+Herkunft/Familie, den wichtigsten Pflegehinweisen *und* dem, was beim
+genannten Raum + Licht zu beachten ist. Wenn der gewählte Standort
+für die Pflanze ungeeignet ist (z.B. Sukkulente im dunklen Bad),
+zeigt der Detail-View oben ein oranges Warnbanner.
 
 Beide Felder sind optional – Q&A leer lassen funktioniert wie vorher.
 Bei späterem Umzug: Felder im Edit-Form ändern, dann KI-Vorschlag
-erneut tippen für aktualisierte Intervalle und Tipps.
+erneut tippen für aktualisierte Intervalle und Beschreibung.
+
+### Listenansicht umschalten
+
+In der Topbar oben rechts gibt es ein ☰/▦-Toggle: Standard ist die
+**Kachel-Ansicht** mit großen Karten. Ein Klick wechselt in die
+**Kompakte Liste** – kleine runde Vorschau, Name, Status und
+Quick-Actions auf einer Zeile. Die Auswahl wird per localStorage
+gemerkt, also bleibt zwischen Sessions erhalten.
 
 ### Pflanze per Foto erkennen (ab HA 2025.7)
 
