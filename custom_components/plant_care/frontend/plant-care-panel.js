@@ -988,36 +988,33 @@ class PlantCarePanel extends HTMLElement {
           </div>
         </header>
 
+        <div class="quick-actions">
+          <button class="btn primary quick-action" data-action="water" data-id="${this._escapeAttr(p.plant_id)}" title="Intervall: alle ${this._escape(p.water_days)} Tage">
+            <span class="qa-icon">💧</span>
+            <span class="qa-label">Gießen</span>
+            <span class="qa-meta">${this._escape(this._relativeTime(p.last_watered))}</span>
+          </button>
+          <button class="btn primary quick-action" data-action="fertilize" data-id="${this._escapeAttr(p.plant_id)}" title="Intervall: alle ${this._escape(p.fertilize_days)} Tage">
+            <span class="qa-icon">🌱</span>
+            <span class="qa-label">Düngen</span>
+            <span class="qa-meta">${this._escape(this._relativeTime(p.last_fertilized))}</span>
+          </button>
+        </div>
+
         ${this._renderWikiSection(p)}
 
         ${this._renderCareLocationSection(p)}
 
-        <section class="detail-grid">
-          <div class="action-card">
-            <h3>💧 Gießen</h3>
-            <p class="muted small">Zuletzt: ${this._escape(this._relativeTime(p.last_watered))}</p>
-            <p class="muted small">Intervall: alle ${this._escape(p.water_days)} Tage</p>
-            <button class="btn primary" data-action="water" data-id="${this._escapeAttr(p.plant_id)}">Jetzt gegossen</button>
-          </div>
-
-          <div class="action-card">
-            <h3>🌱 Düngen</h3>
-            <p class="muted small">Zuletzt: ${this._escape(this._relativeTime(p.last_fertilized))}</p>
-            <p class="muted small">Intervall: alle ${this._escape(p.fertilize_days)} Tage</p>
-            <button class="btn primary" data-action="fertilize" data-id="${this._escapeAttr(p.plant_id)}">Jetzt gedüngt</button>
-          </div>
-
-          ${moistureValue !== null ? `
-            <div class="action-card">
-              <h3>📊 Bodenfeuchte</h3>
-              <div class="moisture-bar">
-                <div class="moisture-fill" style="width:${moistureValue}%"></div>
-                <span class="moisture-label">${Math.round(moistureValue)}%</span>
-              </div>
-              <p class="muted small">${this._escape(p.moisture_sensor)}</p>
+        ${moistureValue !== null ? `
+          <section class="moisture-section">
+            <h3>📊 Bodenfeuchte</h3>
+            <div class="moisture-bar">
+              <div class="moisture-fill" style="width:${moistureValue}%"></div>
+              <span class="moisture-label">${Math.round(moistureValue)}%</span>
             </div>
-          ` : ""}
-        </section>
+            <p class="muted small">${this._escape(p.moisture_sensor)}</p>
+          </section>
+        ` : ""}
 
         ${this._renderTreatments(p)}
 
@@ -2456,20 +2453,39 @@ class PlantCarePanel extends HTMLElement {
       .detail-meta h2 { margin: 0 0 4px; }
       .detail-meta .row { margin-top: 12px; }
 
-      .detail-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 12px;
+      .quick-actions {
+        display: flex;
+        gap: 10px;
         margin-bottom: 20px;
       }
-      .action-card {
+      .quick-action {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 10px;
+        padding: 10px 14px;
+        min-width: 0;
+      }
+      .quick-action .qa-icon { font-size: 1.15rem; line-height: 1; }
+      .quick-action .qa-label { font-weight: 600; }
+      .quick-action .qa-meta {
+        margin-left: auto;
+        font-size: 0.8rem;
+        opacity: 0.85;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .moisture-section {
         background: var(--secondary-background-color, #fafafa);
         border: 1px solid var(--divider-color, #e8e8e8);
         border-radius: 10px;
         padding: 14px;
+        margin-bottom: 20px;
       }
-      .action-card h3 { margin: 0 0 8px; font-size: 1rem; }
-      .action-card .btn { margin-top: 8px; width: 100%; }
+      .moisture-section h3 { margin: 0 0 8px; font-size: 1rem; }
 
       .moisture-bar {
         position: relative;
@@ -2519,6 +2535,9 @@ class PlantCarePanel extends HTMLElement {
         .detail-photo { flex-basis: 100%; aspect-ratio: 16 / 10; }
         .chart-axis { margin-left: 0; }
         .chart-label { flex-basis: auto; }
+      }
+      @media (max-width: 420px) {
+        .quick-action .qa-meta { display: none; }
       }
     `;
   }
