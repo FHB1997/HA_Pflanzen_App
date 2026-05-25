@@ -610,8 +610,18 @@ class PlantCarePanel extends HTMLElement {
         <div class="card-body">
           <h3>${this._escape(p.name)}</h3>
           ${p.species ? `<p class="muted">${this._escape(p.species)}</p>` : ""}
-          <p class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</p>
-          <p class="muted small">💧 ${this._escape(this._relativeTime(p.last_watered))}</p>
+          <div class="card-footer">
+            <div class="card-status">
+              <p class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</p>
+              <p class="muted small">💧 ${this._escape(this._relativeTime(p.last_watered))}</p>
+            </div>
+            ${this._bulkMode ? "" : `
+              <div class="card-actions">
+                <button class="card-action-btn" data-action="water" data-id="${this._escapeAttr(p.plant_id)}" aria-label="Gießen" title="Gießen">💧</button>
+                <button class="card-action-btn" data-action="fertilize" data-id="${this._escapeAttr(p.plant_id)}" aria-label="Düngen" title="Düngen">🌱</button>
+              </div>
+            `}
+          </div>
         </div>
       </article>
     `;
@@ -2325,6 +2335,39 @@ class PlantCarePanel extends HTMLElement {
       .card-body { padding: 12px; }
       .card-body h3 { margin: 0 0 4px; font-size: 1.05rem; }
       .card-body p { margin: 2px 0; }
+      .card-footer {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .card-status { min-width: 0; flex: 1; }
+      .card-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .card-action-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 1px solid var(--divider-color, #e8e8e8);
+        background: var(--sage-bg);
+        font-size: 1.1rem;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: transform .1s, background .15s;
+      }
+      .card-action-btn:hover {
+        background: var(--sage);
+        transform: scale(1.05);
+      }
+      .card-action-btn:active { transform: scale(0.95); }
 
       .status {
         display: inline-block;
