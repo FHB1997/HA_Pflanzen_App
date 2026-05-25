@@ -50,6 +50,19 @@ const LIGHT_LABELS = {
   schatten: "Schatten (weit vom Fenster)",
 };
 
+// Outdoor benutzt die gleichen Keys (Datenmodell bleibt portabel beim
+// Indoor↔Outdoor-Switch), aber die UI-Labels sprechen Garten-Sprache:
+// Sonnenstunden statt Fenster-Abstand.
+const LIGHT_LABELS_OUTDOOR = {
+  vollsonne: "Vollsonne (>6h direkte Sonne)",
+  hell: "Halbsonnig (4-6h direkte Sonne)",
+  halbschatten: "Halbschatten (2-4h Morgen-/Abendsonne)",
+  schatten: "Schatten (keine direkte Sonne)",
+};
+
+const lightLabelsFor = (kind) =>
+  kind === "outdoor" ? LIGHT_LABELS_OUTDOOR : LIGHT_LABELS;
+
 class PlantCarePanel extends HTMLElement {
   constructor() {
     super();
@@ -316,14 +329,17 @@ class PlantCarePanel extends HTMLElement {
   }
 
   _qaContextString(draft) {
+    const isOutdoor = draft.plant_kind === "outdoor";
     const room = draft.room_type
       ? (ROOM_LABELS[draft.room_type] || draft.room_type)
       : "nicht angegeben";
+    const lightLabels = lightLabelsFor(isOutdoor ? "outdoor" : "indoor");
     const light = draft.light_level
-      ? (LIGHT_LABELS[draft.light_level] || draft.light_level)
+      ? (lightLabels[draft.light_level] || draft.light_level)
       : "nicht angegeben";
-    const kind = draft.plant_kind === "outdoor" ? "Outdoor (Garten/Balkon/Terrasse)" : "Indoor (Zimmerpflanze)";
-    return `\n- Pflanzen-Typ: ${kind}\n- Standort: ${room}\n- Lichtintensität: ${light}`;
+    const kind = isOutdoor ? "Outdoor (Garten/Balkon/Terrasse)" : "Indoor (Zimmerpflanze)";
+    const lightWord = isOutdoor ? "Sonneneinstrahlung" : "Lichtintensität";
+    return `\n- Pflanzen-Typ: ${kind}\n- Standort: ${room}\n- ${lightWord}: ${light}`;
   }
 
   async _aiSuggestFromName(name) {
@@ -1237,6 +1253,7 @@ class PlantCarePanel extends HTMLElement {
     const roomSelectValue = !roomValue ? "" : (isKnownForKind ? roomValue : "__other__");
     const lightValue = draft.light_level || "";
     const roomLabelFor = (r) => ROOM_LABELS[r] || r;
+    const lightLabels = lightLabelsFor(kind);
     return `
       <div class="form-grid form-grid-2 location-grid">
         <label class="field">
@@ -1254,13 +1271,13 @@ class PlantCarePanel extends HTMLElement {
         </label>
 
         <div class="field">
-          <span class="field-label">Lichtintensität</span>
+          <span class="field-label">${kind === "outdoor" ? "Sonneneinstrahlung" : "Lichtintensität"}</span>
           <div class="radio-group">
             <label class="radio-pill"><input type="radio" name="light_level" value=""             ${lightValue === ""             ? "checked" : ""}><span>Weiß nicht</span></label>
-            <label class="radio-pill"><input type="radio" name="light_level" value="vollsonne"    ${lightValue === "vollsonne"    ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.vollsonne)}</span></label>
-            <label class="radio-pill"><input type="radio" name="light_level" value="hell"         ${lightValue === "hell"         ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.hell)}</span></label>
-            <label class="radio-pill"><input type="radio" name="light_level" value="halbschatten" ${lightValue === "halbschatten" ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.halbschatten)}</span></label>
-            <label class="radio-pill"><input type="radio" name="light_level" value="schatten"     ${lightValue === "schatten"     ? "checked" : ""}><span>${this._escape(LIGHT_LABELS.schatten)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="vollsonne"    ${lightValue === "vollsonne"    ? "checked" : ""}><span>${this._escape(lightLabels.vollsonne)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="hell"         ${lightValue === "hell"         ? "checked" : ""}><span>${this._escape(lightLabels.hell)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="halbschatten" ${lightValue === "halbschatten" ? "checked" : ""}><span>${this._escape(lightLabels.halbschatten)}</span></label>
+            <label class="radio-pill"><input type="radio" name="light_level" value="schatten"     ${lightValue === "schatten"     ? "checked" : ""}><span>${this._escape(lightLabels.schatten)}</span></label>
           </div>
         </div>
       </div>
@@ -1303,7 +1320,7 @@ class PlantCarePanel extends HTMLElement {
               <p class="facts muted">
                 <span class="kind-badge kind-${isOutdoor ? "outdoor" : "indoor"}">${isOutdoor ? "🌳 Outdoor" : "🪴 Indoor"}</span>
                 ${p.room_type ? `<span>🏠 ${this._escape(ROOM_LABELS[p.room_type] || p.room_type)}</span>` : ""}
-                ${p.light_level ? `<span>💡 ${this._escape(LIGHT_LABELS[p.light_level] || p.light_level)}</span>` : ""}
+                ${p.light_level ? `<span>💡 ${this._escape(lightLabelsFor(isOutdoor ? "outdoor" : "indoor")[p.light_level] || p.light_level)}</span>` : ""}
                 ${p.location ? `<span>📍 ${this._escape(p.location)}</span>` : ""}
               </p>
             ` : `
@@ -1667,8 +1684,9 @@ class PlantCarePanel extends HTMLElement {
 
   _buildChatContext(p) {
     const isOutdoor = (p.plant_kind || "indoor") === "outdoor";
+    const lightLabels = lightLabelsFor(isOutdoor ? "outdoor" : "indoor");
     const room = p.room_type ? (ROOM_LABELS[p.room_type] || p.room_type) : "";
-    const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
+    const light = p.light_level ? (lightLabels[p.light_level] || p.light_level) : "";
     const lastW = this._relativeTime(p.last_watered);
     const lastF = this._relativeTime(p.last_fertilized);
     const kindLabel = isOutdoor
@@ -2303,7 +2321,9 @@ class PlantCarePanel extends HTMLElement {
       } else {
         this._draft = { ...(this._draft || {}), room_type: val };
       }
-      this._render();
+      // _setState statt _render: das SELECT-Element hat Focus → der
+      // _hasFocusedInput-Guard würde einen unforced Render blocken.
+      this._setState({});
       return;
     }
     if (t.name === "room_type_other") {
@@ -2327,7 +2347,10 @@ class PlantCarePanel extends HTMLElement {
         newDraft.room_type = "";
       }
       this._draft = newDraft;
-      this._render();
+      // _setState statt _render: das Radio hat Focus → unforced Render
+      // würde vom _hasFocusedInput-Guard geschluckt und das Outdoor-
+      // Subformular taucht nie auf.
+      this._setState({});
       return;
     }
     if (t.name === "frost_sensitive") {
