@@ -207,7 +207,6 @@ class PlantCarePanel extends HTMLElement {
   _suggestStructureWithLocation() {
     return {
       ...this._suggestStructure(),
-      location_tips: { selector: { text: { multiline: true } } },
       suitability_warning: { selector: { text: { multiline: true } } },
     };
   }
@@ -247,9 +246,8 @@ class PlantCarePanel extends HTMLElement {
             `\n\nGib zurück:\n` +
             `- Spezies (botanisch), deutscher Trivialname\n` +
             `- Gieß- und Düngeintervalle in Tagen, passend zum genannten Licht-Level (bei wenig Licht seltener, bei Vollsonne öfter)\n` +
-            `- Allgemeine Pflegetipps\n` +
-            `- Standort-spezifische Tipps (was ist beim genannten Raum + Licht zu beachten?)\n` +
-            `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung. Sonst leeres Feld.\n` +
+            `- Pflege- und Standort-Tipps kombiniert in einem kurzen Text (Feld tips, 3-5 Sätze): die wichtigsten Pflegehinweise plus was beim genannten Raum + Licht zu beachten ist.\n` +
+            `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung im Feld suitability_warning. Sonst leeres Feld.\n` +
             `- Eine kurze Wiki-artige Beschreibung der Pflanze (Herkunft, Familie, charakteristische Merkmale, 2-4 Sätze) im Feld plant_description.\n` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           structure: this._suggestStructureWithLocation(),
@@ -286,8 +284,9 @@ class PlantCarePanel extends HTMLElement {
             `Welche Zimmerpflanze ist auf dem angehängten Bild zu sehen?` +
             this._qaContextString(this._draft || {}) +
             `\n\nGib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, ` +
-            `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level, ` +
-            `Pflegetipps generell, Standort-spezifische Tipps und (falls Standort ungeeignet) eine kurze Begründung. ` +
+            `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level. ` +
+            `Im Feld tips: kombinierte Pflege- und Standort-Tipps (3-5 Sätze) – die wichtigsten Pflegehinweise plus was beim genannten Raum + Licht zu beachten ist. ` +
+            `Im Feld suitability_warning: falls Standort ungeeignet, eine kurze Begründung; sonst leer. ` +
             `Zusätzlich eine kurze Wiki-artige Beschreibung der Pflanze (Herkunft, Familie, charakteristische Merkmale, 2-4 Sätze) im Feld plant_description. ` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           attachments: [
@@ -852,20 +851,12 @@ class PlantCarePanel extends HTMLElement {
             <span>Position (Detail)</span>
             <input name="location" value="${this._escapeAttr(draft.location || "")}" autocomplete="off" placeholder="z.B. Fensterbank Nord">
           </label>
-          ${(draft.location_tips || draft.suitability_warning) ? `
+          ${draft.suitability_warning ? `
             <div class="location-tips-card">
-              ${draft.suitability_warning ? `
-                <div class="warning-banner inline">
-                  <strong>⚠ Achtung</strong>
-                  <p>${this._escape(draft.suitability_warning)}</p>
-                </div>
-              ` : ""}
-              ${draft.location_tips ? `
-                <div class="info-banner">
-                  <strong>💡 Standort-Tipps</strong>
-                  <p>${this._escape(draft.location_tips)}</p>
-                </div>
-              ` : ""}
+              <div class="warning-banner inline">
+                <strong>⚠ Achtung</strong>
+                <p>${this._escape(draft.suitability_warning)}</p>
+              </div>
             </div>
           ` : ""}
         </section>
@@ -922,8 +913,8 @@ class PlantCarePanel extends HTMLElement {
             ` : ""}
           </label>
           <label class="field">
-            <span>Pflegetipps</span>
-            <textarea name="tips" rows="3" placeholder="Freitext, von KI gefüllt oder selbst notiert">${this._escape(draft.tips || "")}</textarea>
+            <span>Pflege- &amp; Standort-Tipps</span>
+            <textarea name="tips" rows="4" placeholder="Freitext, von KI gefüllt oder selbst notiert. Pflege und Standort kombiniert.">${this._escape(draft.tips || "")}</textarea>
           </label>
           <label class="field">
             <span>Beschreibung (Wiki)</span>
@@ -1066,7 +1057,14 @@ class PlantCarePanel extends HTMLElement {
     const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
     const position = p.location || "";
     const hasFacts = !!(room || light || position);
-    if (!p.tips && !p.location_tips && !hasFacts) return "";
+    // Legacy-Daten: falls Storage-Migration noch nicht durchlief, location_tips
+    // hier zur Anzeige mit anhängen.
+    const legacy = (p.location_tips || "").trim();
+    const tips = (p.tips || "").trim();
+    const combined = legacy && tips !== legacy
+      ? (tips ? `${tips}\n\n${legacy}` : legacy)
+      : tips;
+    if (!combined && !hasFacts) return "";
     const facts = [
       room ? `Raum: ${room}` : "",
       light ? `Licht: ${light}` : "",
@@ -1076,16 +1074,10 @@ class PlantCarePanel extends HTMLElement {
       <section class="care-location-section">
         <h3>💡 Pflege & Standort</h3>
         ${facts ? `<p class="muted small care-location-facts">${this._escape(facts)}</p>` : ""}
-        ${p.tips ? `
+        ${combined ? `
           <div class="info-banner">
-            <strong>🌱 Pflegetipps</strong>
-            <p>${this._escape(p.tips)}</p>
-          </div>
-        ` : ""}
-        ${p.location_tips ? `
-          <div class="info-banner">
-            <strong>📍 Standort-Tipps</strong>
-            <p>${this._escape(p.location_tips)}</p>
+            <strong>🌱 Tipps</strong>
+            <p>${this._escape(combined)}</p>
           </div>
         ` : ""}
       </section>
@@ -1592,6 +1584,13 @@ class PlantCarePanel extends HTMLElement {
           // Alle persistierten Felder in den Draft kopieren, damit das
           // Edit-Form keine Werte verliert und die Q&A-/Tips-Banner
           // korrekt vorbelegt sind.
+          // Legacy: location_tips in tips mergen, falls Storage-Migration
+          // noch nicht lief.
+          const legacyTips = (p.location_tips || "").trim();
+          const baseTips = (p.tips || "").trim();
+          const mergedTips = legacyTips && baseTips !== legacyTips
+            ? (baseTips ? `${baseTips}\n\n${legacyTips}` : legacyTips)
+            : (p.tips || "");
           this._draft = {
             name: p.name,
             species: p.species,
@@ -1601,10 +1600,9 @@ class PlantCarePanel extends HTMLElement {
             fertilize_days: p.fertilize_days,
             moisture_sensor: p.moisture_sensor,
             photo: p.photo,
-            tips: p.tips,
+            tips: mergedTips,
             light_level: p.light_level || "",
             room_type: p.room_type || "",
-            location_tips: p.location_tips || "",
             suitability_warning: p.suitability_warning || "",
             plant_description: p.plant_description || "",
           };
@@ -1716,9 +1714,6 @@ class PlantCarePanel extends HTMLElement {
     delete data.room_type_other;
 
     // Q&A-AI-Resultate aus dem Draft übernehmen
-    if (this._draft && "location_tips" in this._draft) {
-      data.location_tips = this._draft.location_tips || "";
-    }
     if (this._draft && "suitability_warning" in this._draft) {
       data.suitability_warning = this._draft.suitability_warning || "";
     }

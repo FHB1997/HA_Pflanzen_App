@@ -74,12 +74,6 @@ add_plant:
       description: Strukturierter Raum-Typ (Wohnzimmer, Schlafzimmer, …).
       selector:
         text:
-    location_tips:
-      name: Standort-Tipps
-      description: Optional, wird normalerweise von der KI gefüllt.
-      selector:
-        text:
-          multiline: true
     suitability_warning:
       name: Eignungs-Warnung
       description: Optional, wird normalerweise von der KI gefüllt.
@@ -149,10 +143,6 @@ update_plant:
     room_type:
       selector:
         text:
-    location_tips:
-      selector:
-        text:
-          multiline: true
     suitability_warning:
       selector:
         text:

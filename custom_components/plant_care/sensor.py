@@ -153,7 +153,6 @@ class PlantSensor(SensorEntity):
             "tips": plant.get("tips", ""),
             "light_level": plant.get("light_level", ""),
             "room_type": plant.get("room_type", ""),
-            "location_tips": plant.get("location_tips", ""),
             "suitability_warning": plant.get("suitability_warning", ""),
             "plant_description": plant.get("plant_description", ""),
             "treatments": plant.get("treatments", []),

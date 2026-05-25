@@ -90,6 +90,7 @@ class PlantCareCoordinator:
         data = await self._store.async_load() or {}
         plants = data.get("plants", {}) if isinstance(data, dict) else {}
         # Safety-Net: fehlende Felder ergänzen, falls alte Storage-Daten existieren.
+        tips_migrated = 0
         for pid, plant in plants.items():
             plant.setdefault("id", pid)
             plant.setdefault("water_history", [])
@@ -99,12 +100,24 @@ class PlantCareCoordinator:
             plant.setdefault("last_notified", None)
             plant.setdefault("light_level", "")
             plant.setdefault("room_type", "")
-            plant.setdefault("location_tips", "")
             plant.setdefault("suitability_warning", "")
             plant.setdefault("plant_description", "")
+            plant.setdefault("tips", "")
+            # Migration: location_tips wurde in tips konsolidiert.
+            legacy = plant.pop("location_tips", "") or ""
+            if legacy.strip():
+                existing = (plant.get("tips") or "").strip()
+                plant["tips"] = f"{existing}\n\n{legacy.strip()}" if existing else legacy.strip()
+                tips_migrated += 1
             migrate_legacy_photo(plant)
             plant.setdefault("treatments", [])
         self._plants = plants
+        if tips_migrated:
+            await self._async_save_now()
+            _LOGGER.info(
+                "Plant Care: location_tips bei %d Pflanze(n) in tips migriert",
+                tips_migrated,
+            )
 
         migrated = await self._migrate_data_url_photos()
         if migrated:
@@ -197,7 +210,6 @@ class PlantCareCoordinator:
             "tips": cleaned.get("tips", ""),
             "light_level": cleaned.get("light_level", ""),
             "room_type": cleaned.get("room_type", ""),
-            "location_tips": cleaned.get("location_tips", ""),
             "suitability_warning": cleaned.get("suitability_warning", ""),
             "plant_description": cleaned.get("plant_description", ""),
             "last_watered": cleaned.get("last_watered"),
