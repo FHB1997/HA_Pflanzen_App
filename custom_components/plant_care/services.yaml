@@ -342,3 +342,10 @@ send_reminders:
       default: false
       selector:
         boolean:
+
+send_test_notification:
+  name: Test-Benachrichtigung senden
+  description: >
+    Sendet eine statische Test-Nachricht an alle konfigurierten
+    Notify-Targets. Ignoriert Ruhezeiten und Rate-Limit. Gibt die
+    Liste der Targets und etwaige Fehler zurück.

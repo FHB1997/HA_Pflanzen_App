@@ -66,6 +66,10 @@ SERVICE_REMOVE_PLANT: Final = "remove_plant"
 SERVICE_WATER_PLANT: Final = "water_plant"
 SERVICE_FERTILIZE_PLANT: Final = "fertilize_plant"
 SERVICE_SEND_REMINDERS: Final = "send_reminders"
+SERVICE_SEND_TEST_NOTIFICATION: Final = "send_test_notification"
+
+# Options-Flow Helper-Feld (kein persistierter Config-Key)
+OPT_SEND_TEST: Final = "send_test"
 
 # Default-Intervalle (Tage)
 DEFAULT_WATER_DAYS: Final = 7

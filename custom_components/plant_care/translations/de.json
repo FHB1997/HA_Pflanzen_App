@@ -21,9 +21,14 @@
           "notify_title": "Titel der Benachrichtigung",
           "quiet_hours_start": "Beginn Ruhezeit",
           "quiet_hours_end": "Ende Ruhezeit",
-          "rate_limit_hours": "Mindestabstand zwischen Erinnerungen pro Pflanze (Stunden)"
+          "rate_limit_hours": "Mindestabstand zwischen Erinnerungen pro Pflanze (Stunden)",
+          "send_test": "Test-Benachrichtigung beim Speichern senden"
         }
       }
+    },
+    "error": {
+      "test_failed": "Test-Benachrichtigung fehlgeschlagen – siehe Log.",
+      "notify_service_empty": "Bitte zuerst einen Notify-Service eintragen."
     }
   },
   "services": {
@@ -79,6 +84,10 @@
         "plant_id": { "name": "Pflanzen-ID", "description": "Optional: nur diese Pflanze" },
         "force": { "name": "Erzwingen", "description": "Ruhezeit und Rate-Limit ignorieren" }
       }
+    },
+    "send_test_notification": {
+      "name": "Test-Benachrichtigung senden",
+      "description": "Schickt eine statische Test-Nachricht an alle konfigurierten Notify-Targets. Ignoriert Ruhezeiten und Rate-Limit."
     }
   }
 }

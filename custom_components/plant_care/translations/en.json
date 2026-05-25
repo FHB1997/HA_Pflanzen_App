@@ -21,9 +21,14 @@
           "notify_title": "Notification title",
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",
-          "rate_limit_hours": "Minimum hours between reminders for the same plant"
+          "rate_limit_hours": "Minimum hours between reminders for the same plant",
+          "send_test": "Send a test notification on save"
         }
       }
+    },
+    "error": {
+      "test_failed": "Test notification failed – see log.",
+      "notify_service_empty": "Please configure a notify service first."
     }
   },
   "services": {
@@ -79,6 +84,10 @@
         "plant_id": { "name": "Plant ID", "description": "Optional: only this plant" },
         "force": { "name": "Force", "description": "Ignore quiet hours and rate limit" }
       }
+    },
+    "send_test_notification": {
+      "name": "Send test notification",
+      "description": "Sends a static test message to all configured notify targets. Ignores quiet hours and rate limit."
     }
   }
 }

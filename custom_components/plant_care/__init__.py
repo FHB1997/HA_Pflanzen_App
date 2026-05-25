@@ -48,6 +48,7 @@ from .const import (
     SERVICE_REMOVE_PLANT_PHOTO,
     SERVICE_RESOLVE_TREATMENT,
     SERVICE_SEND_REMINDERS,
+    SERVICE_SEND_TEST_NOTIFICATION,
     SERVICE_UPDATE_PLANT,
     SERVICE_WATER_PLANT,
 )
@@ -116,6 +117,8 @@ SEND_REMINDERS_SCHEMA = vol.Schema(
         vol.Optional("force", default=False): cv.boolean,
     }
 )
+
+SEND_TEST_NOTIFICATION_SCHEMA = vol.Schema({})
 
 ADD_PLANT_PHOTO_SCHEMA = vol.Schema(
     {
@@ -332,6 +335,10 @@ def _register_services(
         )
         return {"sent": sent}
 
+    async def handle_send_test_notification(call: ServiceCall) -> ServiceResponse:
+        result = await coord.send_test_notification(entry.options)
+        return result
+
     async def handle_add_plant_photo(call: ServiceCall) -> ServiceResponse:
         data = dict(call.data)
         plant_id = data["plant_id"]
@@ -432,6 +439,13 @@ def _register_services(
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_SEND_TEST_NOTIFICATION,
+        handle_send_test_notification,
+        schema=SEND_TEST_NOTIFICATION_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_ADD_PLANT_PHOTO,
         handle_add_plant_photo,
         schema=ADD_PLANT_PHOTO_SCHEMA,
@@ -490,6 +504,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_WATER_PLANT,
         SERVICE_FERTILIZE_PLANT,
         SERVICE_SEND_REMINDERS,
+        SERVICE_SEND_TEST_NOTIFICATION,
         SERVICE_ADD_PLANT_PHOTO,
         SERVICE_REMOVE_PLANT_PHOTO,
         SERVICE_DIAGNOSE_PLANT,

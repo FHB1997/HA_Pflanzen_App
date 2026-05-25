@@ -669,6 +669,44 @@ class PlantCareCoordinator:
             _LOGGER.info("Plant Care: %d Erinnerung(en) versendet", sent)
         return sent
 
+    async def send_test_notification(
+        self, options: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Sendet eine statische Test-Notification an alle konfigurierten
+        Targets. Ignoriert Ruhezeiten und Rate-Limit.
+
+        Returns:
+            ``{"targets": [...], "errors": [...]}`` – pro Target ein Eintrag.
+        """
+        notify_service_full = (options.get(CONF_NOTIFY_SERVICE) or "").strip()
+        notify_targets = parse_notify_targets(notify_service_full)
+        if not notify_targets:
+            raise ValueError("Kein Notify-Service konfiguriert")
+
+        title = options.get(CONF_NOTIFY_TITLE) or DEFAULT_NOTIFY_TITLE
+        message = (
+            "🌿 Plant Care Test-Benachrichtigung. "
+            "Wenn du das siehst, ist die Konfiguration korrekt."
+        )
+        payload: dict[str, Any] = {"title": title, "message": message}
+
+        targets: list[str] = []
+        errors: list[str] = []
+        for notify_domain, notify_service in notify_targets:
+            target = f"{notify_domain}.{notify_service}"
+            try:
+                await self.hass.services.async_call(
+                    notify_domain, notify_service, dict(payload), blocking=True
+                )
+                targets.append(target)
+            except Exception as err:  # noqa: BLE001 – pro Target isolieren
+                _LOGGER.warning(
+                    "Plant Care: Test-Notify %s fehlgeschlagen: %s", target, err
+                )
+                errors.append(f"{target}: {err}")
+
+        return {"targets": targets, "errors": errors}
+
 
 def _build_reminder_message(name: str, status: str) -> str:
     if status == STATUS_NEEDS_ATTENTION:

@@ -1,6 +1,7 @@
 """Config Flow für Plant Care – einmalige Einrichtung + Options."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -25,8 +26,11 @@ from .const import (
     DEFAULT_QUIET_HOURS_START,
     DEFAULT_RATE_LIMIT_HOURS,
     DOMAIN,
+    OPT_SEND_TEST,
     PANEL_TITLE,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class PlantCareConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -61,11 +65,39 @@ class PlantCareOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
         if user_input is not None:
+            send_test = bool(user_input.pop(OPT_SEND_TEST, False))
+            if send_test:
+                # Auf den gerade abgesendeten (noch nicht persistierten)
+                # Werten testen, damit User vor dem Save validieren können.
+                coord = self.hass.data.get(DOMAIN, {}).get("coordinator")
+                if coord is None:
+                    errors["base"] = "test_failed"
+                    return self._show_form(user_input, errors=errors)
+                try:
+                    await coord.send_test_notification(user_input)
+                except ValueError:
+                    errors[CONF_NOTIFY_SERVICE] = "notify_service_empty"
+                    return self._show_form(user_input, errors=errors)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Plant Care: Test-Benachrichtigung fehlgeschlagen: %s", err
+                    )
+                    errors["base"] = "test_failed"
+                    return self._show_form(user_input, errors=errors)
             # Leerer Notify-Service deaktiviert das Feature implizit.
             return self.async_create_entry(title="", data=user_input)
 
-        opts = self._config_entry.options
+        return self._show_form(None)
+
+    def _show_form(
+        self,
+        user_input: dict[str, Any] | None,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        opts = user_input if user_input is not None else self._config_entry.options
         schema = vol.Schema(
             {
                 vol.Optional(
@@ -108,6 +140,12 @@ class PlantCareOptionsFlow(OptionsFlow):
                         unit_of_measurement="h",
                     )
                 ),
+                vol.Optional(
+                    OPT_SEND_TEST,
+                    default=False,
+                ): selector.BooleanSelector(),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init", data_schema=schema, errors=errors or {}
+        )
