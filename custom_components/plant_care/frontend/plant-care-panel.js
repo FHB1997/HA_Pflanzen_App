@@ -503,20 +503,24 @@ class PlantCarePanel extends HTMLElement {
       <style>${this._styles()}</style>
       <div class="app">
         <header class="topbar">
+          <button class="icon-btn ha-menu" data-action="toggle-ha-menu" aria-label="HA-Seitenleiste umschalten" title="Seitenleiste">☰</button>
           <div class="brand">
             <span class="leaf">🌿</span>
             <h1>Plant Care</h1>
           </div>
+          <div class="topbar-spacer"></div>
           ${this._view === "list" ? (this._bulkMode ? `
             <button class="btn ghost" data-action="bulk-cancel">Abbrechen</button>
           ` : `
-            <button class="btn ghost" data-action="show-calendar">📅 Kalender</button>
-            <button class="btn ghost icon-only" data-action="toggle-list-mode" title="${this._listMode === "compact" ? "Kachel-Ansicht" : "Kompakte Liste"}" aria-label="Ansicht wechseln">${this._listMode === "compact" ? "▦" : "☰"}</button>
-            <button class="btn ghost" data-action="bulk-toggle">☑ Auswahl</button>
-            <button class="btn primary" data-action="new">+ Neue Pflanze</button>
+            <div class="topbar-actions">
+              <button class="icon-btn" data-action="show-calendar" aria-label="Kalender" title="Kalender">📅</button>
+              <button class="icon-btn" data-action="toggle-list-mode" aria-label="Ansicht wechseln" title="${this._listMode === "compact" ? "Kachel-Ansicht" : "Kompakte Liste"}">${this._listMode === "compact" ? "▦" : "▤"}</button>
+              <button class="icon-btn" data-action="bulk-toggle" aria-label="Mehrfachauswahl" title="Auswahl">☑</button>
+            </div>
+            <button class="btn primary cta" data-action="new">+ Neue Pflanze</button>
           `) : this._view === "calendar" ? `
-            <button class="btn ghost" data-action="show-list">📋 Liste</button>
-            <button class="btn primary" data-action="new">+ Neue Pflanze</button>
+            <button class="icon-btn" data-action="show-list" aria-label="Listenansicht" title="Liste">📋</button>
+            <button class="btn primary cta" data-action="new">+ Neue Pflanze</button>
           ` : `
             <button class="btn ghost" data-action="back">← Zurück</button>
           `}
@@ -805,12 +809,21 @@ class PlantCarePanel extends HTMLElement {
       ? `<span class="agenda-overdue">⚠ überfällig</span>`
       : "";
     const showActionButton = isTodaySection || e.overdue;
+    const plant = this._plantById(e.plant_id);
+    const photo = plant && plant.photo ? plant.photo : "";
     return `
       <li class="agenda-event ${e.overdue ? "overdue" : ""}">
         <button class="agenda-event-main" data-action="open-detail" data-id="${this._escapeAttr(e.plant_id)}">
-          <span class="agenda-icon">${icon}</span>
-          <span class="agenda-event-name">${this._escape(e.name)}</span>
-          <span class="agenda-event-action muted small">${label}</span>
+          <span class="agenda-photo">
+            ${photo
+              ? `<img src="${this._escapeAttr(photo)}" alt="">`
+              : `<span class="thumb-placeholder small">🌱</span>`}
+            <span class="agenda-photo-badge">${icon}</span>
+          </span>
+          <span class="agenda-event-info">
+            <span class="agenda-event-name">${this._escape(e.name)}</span>
+            <span class="agenda-event-action muted small">${label}${overdueLabel ? "" : ""}</span>
+          </span>
           ${overdueLabel}
         </button>
         ${showActionButton ? `
@@ -1515,6 +1528,13 @@ class PlantCarePanel extends HTMLElement {
         this._saveListMode(this._listMode);
         this._setState({});
         break;
+      case "toggle-ha-menu":
+        // HA-Standard-Event – wird von HA-Main aufgefangen und togglet
+        // die Seitenleiste. Muss aus dem Shadow Root heraus bubbeln.
+        this.dispatchEvent(
+          new Event("hass-toggle-menu", { bubbles: true, composed: true }),
+        );
+        break;
       case "calendar-more":
         this._calendarDays = Math.min(180, this._calendarDays + 14);
         this._loadCalendar();
@@ -1988,13 +2008,50 @@ class PlantCarePanel extends HTMLElement {
       .topbar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 12px;
+        gap: 8px;
         margin-bottom: 16px;
+        flex-wrap: nowrap;
       }
-      .brand { display: flex; align-items: center; gap: 8px; }
-      .brand h1 { margin: 0; font-size: 1.5rem; font-weight: 600; }
-      .brand .leaf { font-size: 1.8rem; }
+      .topbar-spacer { flex: 1; min-width: 4px; }
+      .topbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px;
+        border-radius: 22px;
+        background: var(--secondary-background-color, rgba(255,255,255,0.04));
+      }
+      .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .brand h1 { margin: 0; font-size: 1.35rem; font-weight: 600; white-space: nowrap; }
+      .brand .leaf { font-size: 1.6rem; }
+
+      .icon-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 1.1rem;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        color: inherit;
+        font-family: inherit;
+        transition: background .15s, transform .08s;
+      }
+      .icon-btn:hover { background: var(--sage-bg); }
+      .icon-btn:active { transform: scale(0.94); }
+      .icon-btn.ha-menu {
+        flex-shrink: 0;
+      }
+      .topbar .cta {
+        flex-shrink: 0;
+        padding: 9px 16px;
+        font-weight: 600;
+      }
       .muted { color: var(--secondary-text-color, #777); }
       .small { font-size: 0.85rem; }
 
@@ -2127,11 +2184,6 @@ class PlantCarePanel extends HTMLElement {
         flex-shrink: 0;
       }
       .thumb-placeholder.small { font-size: 1.6rem; }
-      .icon-only {
-        padding: 6px 10px;
-        font-size: 1.05rem;
-        line-height: 1;
-      }
       .card {
         background: var(--card-background-color, #fff);
         border: 1px solid var(--divider-color, #e8e8e8);
@@ -2433,7 +2485,48 @@ class PlantCarePanel extends HTMLElement {
         min-width: 0;
       }
       .agenda-event-main:hover .agenda-event-name { text-decoration: underline; }
+      .agenda-photo {
+        position: relative;
+        flex: 0 0 44px;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        overflow: hidden;
+        background: var(--sage-bg);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .agenda-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .agenda-photo-badge {
+        position: absolute;
+        bottom: -2px;
+        right: -2px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--card-background-color, #fff);
+        border: 2px solid var(--card-background-color, #fff);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        line-height: 1;
+        overflow: visible;
+      }
       .agenda-icon { font-size: 1.15rem; line-height: 1; }
+      .agenda-event-info {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
       .agenda-event-name {
         font-weight: 500;
         overflow: hidden;
@@ -2849,10 +2942,14 @@ class PlantCarePanel extends HTMLElement {
       }
 
       @media (max-width: 640px) {
-        .topbar h1 { font-size: 1.2rem; }
+        .topbar h1 { font-size: 1.1rem; }
+        .topbar .cta { padding: 8px 12px; font-size: 0.9rem; }
         .detail-photo { flex-basis: 100%; aspect-ratio: 16 / 10; }
         .chart-axis { margin-left: 0; }
         .chart-label { flex-basis: auto; }
+      }
+      @media (max-width: 480px) {
+        .brand h1 { display: none; }
       }
       @media (max-width: 420px) {
         .quick-action .qa-meta { display: none; }
