@@ -11,6 +11,7 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant – mit eigener Sidebar, 
 - **Foto-Erkennung** der Pflanzenart per Bild (ab HA 2025.7)
 - **Konsolidierte Pflanzen-Beschreibung** (4-6 Sätze: Herkunft + Pflege + Standort in einem Text)
 - **Behandlungs-Feature**: KI-Foto-Diagnose *oder* manuelle Textbeschreibung
+- **KI-Chat im Detail-View**: Fragen im Kontext der Pflanze, Multi-Turn via HA Conversation
 - **Sensor-Übersteuerung**: Bodenfeuchte-Sensor übersteuert die Zeit-Heuristik (<20% / >50%)
 - **Sensoren optional** – funktioniert auch komplett ohne Hardware
 - **Foto-Verlauf** pro Pflanze (max. 100, FIFO)

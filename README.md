@@ -9,6 +9,7 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant. Plant Care besteht aus e
 - Foto-basierte Pflanzenerkennung (ab HA 2025.7)
 - Konsolidierte „Über diese Pflanze"-Beschreibung (4-6 Sätze: Herkunft + Pflege + Standort-Hinweise als ein Text)
 - Behandlungs-Feature („Was ist los?") mit KI-Foto-Diagnose **oder** manueller Textbeschreibung
+- KI-Chat in der Detail-Ansicht: stell Fragen im Kontext der Pflanze, Multi-Turn via HA Conversation-Agent
 - Optionale Verknüpfung mit Bodenfeuchte-Sensoren (übersteuert das Zeit-Intervall)
 - Verlaufsdiagramme für Gieß- und Düngevorgänge
 - Foto-Verlauf pro Pflanze (max. 100, FIFO)
@@ -135,6 +136,25 @@ und Plant Care versendet eine Reminder-Notification mit den Buttons
 **✓ Erledigt** / **✗ Verwerfen** / **💤 Snooze 1d**.
 
 Anti-Spam-Throttle: mindestens 60s zwischen Diagnose-Einträgen pro Pflanze.
+
+### KI-Chat zur Pflanze
+
+Im Detail-View gibt's eine **💬 Frag die KI**-Sektion. Du tippst eine
+Frage („Warum fallen die Blätter ab?", „Reicht das Licht am
+Ostfenster?", „Wann umtopfen?") und HA's Conversation-Agent
+antwortet. Der erste Prompt bekommt automatisch einen Plant-Context-
+Vorspann (Name, Spezies, Raum, Licht, Position, Pflege-Intervalle,
+Wiki-Beschreibung). Folgenachrichten laufen über `conversation_id`,
+sodass die KI den Verlauf kennt.
+
+Voraussetzung: HA hat einen Conversation-Agent konfiguriert
+(Einstellungen → Sprachassistenten → Standard). Ohne LLM-Agent
+antwortet HA mit dem internen Regex-Agent, der für freie Fragen
+naturgemäß keine sinnvollen Antworten gibt. Empfohlen: derselbe
+Provider wie für AI Task (Anthropic, OpenAI, Gemini, Ollama).
+
+„Verlauf löschen" startet eine neue Konversation. Der Verlauf ist
+nur im Browser gespeichert – beim Neuladen des Panels verfällt er.
 
 ### Sensor-Verknüpfung
 

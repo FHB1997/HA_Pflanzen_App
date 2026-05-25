@@ -61,6 +61,8 @@ class PlantCarePanel extends HTMLElement {
     this._calendarLoading = false;
     this._calendarDays = 14;
     this._aiBusy = false;
+    this._chatStates = new Map();
+    this._chatScrollPending = false;
     this._listMode = this._loadListMode();
     this._lastStatesSignature = "";
     this._onClick = this._onClick.bind(this);
@@ -474,6 +476,9 @@ class PlantCarePanel extends HTMLElement {
       "arrow-left":
         '<line x1="19" y1="12" x2="5" y2="12"/>' +
         '<polyline points="12 19 5 12 12 5"/>',
+      send:
+        '<line x1="22" y1="2" x2="11" y2="13"/>' +
+        '<polygon points="22 2 15 22 11 13 2 9 22 2"/>',
     };
     const inner = paths[name];
     if (!inner) return "";
@@ -575,6 +580,27 @@ class PlantCarePanel extends HTMLElement {
       form.addEventListener("submit", this._onSubmit);
       form.addEventListener("input", this._onInput);
       form.addEventListener("change", this._onChange);
+    }
+    const chatInput = this.shadowRoot.querySelector("[data-chat-input]");
+    if (chatInput) {
+      chatInput.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter" && !evt.shiftKey) {
+          evt.preventDefault();
+          const plantId = chatInput.dataset.chatInput;
+          const text = chatInput.value;
+          chatInput.value = "";
+          this._sendChatMessage(plantId, text);
+        }
+      });
+    }
+    if (this._chatScrollPending) {
+      this._chatScrollPending = false;
+      const container = this.shadowRoot.querySelector(".chat-messages");
+      if (container) {
+        requestAnimationFrame(() => {
+          container.scrollTop = container.scrollHeight;
+        });
+      }
     }
   }
 
@@ -1114,6 +1140,8 @@ class PlantCarePanel extends HTMLElement {
 
         ${this._renderAboutSection(p)}
 
+        ${this._renderChatSection(p)}
+
         ${moistureValue !== null ? `
           <section class="moisture-section">
             <h3>📊 Bodenfeuchte</h3>
@@ -1423,6 +1451,137 @@ class PlantCarePanel extends HTMLElement {
     }
   }
 
+  /* ------------------------------ Plant-Chat ----------------------------- */
+
+  _getChatState(plantId) {
+    let state = this._chatStates.get(plantId);
+    if (!state) {
+      state = { messages: [], conversationId: null, busy: false };
+      this._chatStates.set(plantId, state);
+    }
+    return state;
+  }
+
+  _buildChatContext(p) {
+    const room = p.room_type ? (ROOM_LABELS[p.room_type] || p.room_type) : "";
+    const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
+    const lastW = this._relativeTime(p.last_watered);
+    const lastF = this._relativeTime(p.last_fertilized);
+    const lines = [
+      `Du beantwortest Fragen zur Zimmerpflanze "${p.name}"${p.species ? ` (${p.species})` : ""}.`,
+    ];
+    const facts = [];
+    if (room) facts.push(`Raum: ${room}`);
+    if (light) facts.push(`Licht: ${light}`);
+    if (p.location) facts.push(`Position: ${p.location}`);
+    if (facts.length) lines.push(`Standort – ${facts.join(", ")}.`);
+    lines.push(
+      `Gießintervall alle ${p.water_days} Tage (zuletzt ${lastW}); ` +
+      `Düngeintervall alle ${p.fertilize_days} Tage (zuletzt ${lastF}).`,
+    );
+    if (p.plant_description) {
+      lines.push(`Hintergrund: ${p.plant_description}`);
+    }
+    return lines.join("\n");
+  }
+
+  async _sendChatMessage(plantId, text) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return;
+    const plant = this._plantById(plantId);
+    if (!plant) return;
+    const state = this._getChatState(plantId);
+    if (state.busy) return;
+
+    state.messages.push({ role: "user", text: trimmed });
+    state.busy = true;
+    this._chatScrollPending = true;
+    this._setState({});
+
+    const isFirst = state.messages.filter((m) => m.role === "user").length === 1;
+    const payload = { text: trimmed, language: "de" };
+    if (isFirst) {
+      payload.text = `${this._buildChatContext(plant)}\n\nFrage: ${trimmed}`;
+    }
+    if (state.conversationId) {
+      payload.conversation_id = state.conversationId;
+    }
+
+    try {
+      const res = await this._callServiceWithResponse(
+        "conversation",
+        "process",
+        payload,
+      );
+      const reply =
+        res?.response?.speech?.plain?.speech ||
+        res?.service_response?.response?.speech?.plain?.speech ||
+        "";
+      if (res?.conversation_id) state.conversationId = res.conversation_id;
+      state.messages.push({
+        role: "assistant",
+        text: reply || "Die KI hat keine Antwort geliefert.",
+      });
+    } catch (err) {
+      console.error(err);
+      state.messages.push({
+        role: "assistant",
+        text: `❌ ${this._fmtErr(err)}`,
+        error: true,
+      });
+    } finally {
+      state.busy = false;
+      this._chatScrollPending = true;
+      this._setState({});
+    }
+  }
+
+  _clearChat(plantId) {
+    this._chatStates.delete(plantId);
+    this._setState({});
+  }
+
+  _renderChatSection(p) {
+    const state = this._chatStates.get(p.plant_id);
+    const messages = state?.messages || [];
+    const busy = !!state?.busy;
+    return `
+      <section class="chat-section">
+        <header class="chat-head">
+          <h3>💬 Frag die KI zu dieser Pflanze</h3>
+          ${messages.length > 0 ? `
+            <button class="btn ghost small" data-action="chat-clear" data-id="${this._escapeAttr(p.plant_id)}">Verlauf löschen</button>
+          ` : ""}
+        </header>
+        ${messages.length === 0 ? `
+          <p class="muted small">Stell eine Frage zu Pflege, Standort, Krankheiten oder allem rund um deine Pflanze.</p>
+        ` : `
+          <div class="chat-messages" id="chat-messages-${this._escapeAttr(p.plant_id)}">
+            ${messages.map((m) => `
+              <div class="chat-msg chat-msg-${this._escape(m.role)}${m.error ? " chat-msg-error" : ""}">
+                <span class="chat-bubble">${this._escape(m.text)}</span>
+              </div>
+            `).join("")}
+            ${busy ? `<div class="chat-msg chat-msg-assistant"><span class="chat-bubble chat-busy"><span class="chat-dot"></span><span class="chat-dot"></span><span class="chat-dot"></span></span></div>` : ""}
+          </div>
+        `}
+        <div class="chat-form">
+          <input
+            type="text"
+            class="chat-input"
+            data-chat-input="${this._escapeAttr(p.plant_id)}"
+            placeholder="z.B. Warum fallen die Blätter ab?"
+            autocomplete="off"
+            ${busy ? "disabled" : ""}
+          >
+          <button class="btn primary chat-send-btn" type="button" data-action="chat-send" data-id="${this._escapeAttr(p.plant_id)}" ${busy ? "disabled" : ""} aria-label="Senden">
+            ${this._icon("send")}
+          </button>
+        </div>
+      </section>
+    `;
+  }
+
   _renderPhotoHistory(p) {
     const photos = Array.isArray(p.photos) ? p.photos : [];
     return `
@@ -1570,6 +1729,16 @@ class PlantCarePanel extends HTMLElement {
         this.dispatchEvent(
           new Event("hass-toggle-menu", { bubbles: true, composed: true }),
         );
+        break;
+      case "chat-send": {
+        const input = this.shadowRoot.querySelector(`[data-chat-input="${CSS.escape(id)}"]`);
+        const text = input ? input.value : "";
+        if (input) input.value = "";
+        this._sendChatMessage(id, text);
+        break;
+      }
+      case "chat-clear":
+        this._clearChat(id);
         break;
       case "calendar-more":
         this._calendarDays = Math.min(180, this._calendarDays + 14);
@@ -2402,6 +2571,114 @@ class PlantCarePanel extends HTMLElement {
       .status.attention { background: rgba(245, 158, 11, 0.15); color: #b45309; }
 
       .treatments { margin-bottom: 20px; }
+
+      .chat-section {
+        margin-bottom: 24px;
+        padding: 14px 14px 12px;
+        border: 1px solid var(--divider-color, #e8e8e8);
+        border-radius: 12px;
+        background: var(--secondary-background-color, rgba(255,255,255,0.02));
+      }
+      .chat-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .chat-head h3 { margin: 0; font-size: 1rem; }
+      .chat-messages {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 280px;
+        overflow-y: auto;
+        padding: 4px 2px;
+        margin-bottom: 10px;
+      }
+      .chat-msg {
+        display: flex;
+        max-width: 100%;
+      }
+      .chat-msg-user { justify-content: flex-end; }
+      .chat-msg-assistant { justify-content: flex-start; }
+      .chat-bubble {
+        max-width: 85%;
+        padding: 8px 12px;
+        border-radius: 14px;
+        font-size: 0.92rem;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      .chat-msg-user .chat-bubble {
+        background: var(--sage);
+        color: #fff;
+        border-bottom-right-radius: 4px;
+      }
+      .chat-msg-assistant .chat-bubble {
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--divider-color, #e8e8e8);
+        border-bottom-left-radius: 4px;
+      }
+      .chat-msg-error .chat-bubble {
+        background: rgba(201, 42, 42, 0.08);
+        border-color: rgba(201, 42, 42, 0.3);
+        color: var(--error-color, #c92a2a);
+      }
+      .chat-busy {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        min-height: 18px;
+      }
+      .chat-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.4;
+        animation: chat-dot-pulse 1.2s infinite ease-in-out;
+      }
+      .chat-dot:nth-child(2) { animation-delay: 0.15s; }
+      .chat-dot:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes chat-dot-pulse {
+        0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+        30% { opacity: 1; transform: scale(1); }
+      }
+
+      .chat-form {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+      }
+      .chat-input {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 14px;
+        border-radius: 22px;
+        border: 1px solid var(--divider-color, #d4d4d4);
+        background: var(--card-background-color, #fff);
+        color: inherit;
+        font-family: inherit;
+        font-size: 0.95rem;
+      }
+      .chat-input:focus {
+        outline: none;
+        border-color: var(--sage);
+        box-shadow: 0 0 0 2px var(--sage-bg);
+      }
+      .chat-send-btn {
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .chat-send-btn .icon { width: 18px; height: 18px; }
       .treatments h3 { margin: 0 0 8px; font-size: 1rem; }
       .treatment-actions { margin-bottom: 8px; }
       .treatment-card {
