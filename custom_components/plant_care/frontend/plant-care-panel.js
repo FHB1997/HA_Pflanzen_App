@@ -165,6 +165,49 @@ class PlantCarePanel extends HTMLElement {
       }));
   }
 
+  // conversation.home_assistant ist der Built-in Assist-Agent ohne LLM und
+  // beantwortet freie Pflanzen-Fragen mit "Entschuldigung, das habe ich
+  // nicht verstanden". Wir blenden ihn aus der Auswahl aus.
+  _findConversationAgents() {
+    if (!this._hass) return [];
+    return Object.values(this._hass.states)
+      .filter(
+        (s) =>
+          s.entity_id.startsWith("conversation.") &&
+          s.entity_id !== "conversation.home_assistant",
+      )
+      .map((s) => ({
+        entity_id: s.entity_id,
+        name:
+          (s.attributes && s.attributes.friendly_name) || s.entity_id,
+      }));
+  }
+
+  _loadPreferredConversationAgent() {
+    try {
+      return localStorage.getItem("plant_care_chat_agent") || null;
+    } catch {
+      return null;
+    }
+  }
+
+  _savePreferredConversationAgent(id) {
+    try {
+      if (id) localStorage.setItem("plant_care_chat_agent", id);
+      else localStorage.removeItem("plant_care_chat_agent");
+    } catch {
+      // localStorage kann gesperrt sein – egal.
+    }
+  }
+
+  _getActiveConversationAgent() {
+    const agents = this._findConversationAgents();
+    if (!agents.length) return null;
+    const saved = this._loadPreferredConversationAgent();
+    if (saved && agents.some((a) => a.entity_id === saved)) return saved;
+    return agents[0].entity_id;
+  }
+
   /* ----------------------------- Service-Calls --------------------------- */
 
   async _callServiceWithResponse(domain, service, data) {
@@ -591,6 +634,23 @@ class PlantCarePanel extends HTMLElement {
           chatInput.value = "";
           this._sendChatMessage(plantId, text);
         }
+      });
+    }
+    const agentSelect = this.shadowRoot.querySelector(
+      "[data-chat-agent-select]",
+    );
+    if (agentSelect) {
+      agentSelect.addEventListener("change", (evt) => {
+        const value = evt.target.value || null;
+        this._savePreferredConversationAgent(value);
+        // conversation_id eines anderen Agenten verwerfen.
+        for (const state of this._chatStates.values()) {
+          if (state.agentId && state.agentId !== value) {
+            state.conversationId = null;
+            state.agentId = null;
+          }
+        }
+        this._setState({});
       });
     }
     if (this._chatScrollPending) {
@@ -1498,14 +1558,31 @@ class PlantCarePanel extends HTMLElement {
     this._chatScrollPending = true;
     this._setState({});
 
+    const agentId = this._getActiveConversationAgent();
+    if (!agentId) {
+      state.messages.push({
+        role: "assistant",
+        text:
+          "❌ Kein AI-Conversation-Agent eingerichtet. Bitte unter " +
+          "Einstellungen → Sprachassistenten einen AI-basierten Agenten " +
+          "(z.B. OpenAI, Anthropic, Gemini) hinzufügen.",
+        error: true,
+      });
+      state.busy = false;
+      this._chatScrollPending = true;
+      this._setState({});
+      return;
+    }
+
     const isFirst = state.messages.filter((m) => m.role === "user").length === 1;
-    const payload = { text: trimmed, language: "de" };
+    const payload = { text: trimmed, language: "de", agent_id: agentId };
     if (isFirst) {
       payload.text = `${this._buildChatContext(plant)}\n\nFrage: ${trimmed}`;
     }
-    if (state.conversationId) {
+    if (state.conversationId && state.agentId === agentId) {
       payload.conversation_id = state.conversationId;
     }
+    state.agentId = agentId;
 
     try {
       const res = await this._callServiceWithResponse(
@@ -1545,6 +1622,8 @@ class PlantCarePanel extends HTMLElement {
     const state = this._chatStates.get(p.plant_id);
     const messages = state?.messages || [];
     const busy = !!state?.busy;
+    const agents = this._findConversationAgents();
+    const activeAgent = this._getActiveConversationAgent();
     return `
       <section class="chat-section">
         <header class="chat-head">
@@ -1553,6 +1632,29 @@ class PlantCarePanel extends HTMLElement {
             <button class="btn ghost small" data-action="chat-clear" data-id="${this._escapeAttr(p.plant_id)}">Verlauf löschen</button>
           ` : ""}
         </header>
+        ${agents.length === 0 ? `
+          <p class="chat-warning small">
+            ⚠️ Kein AI-Conversation-Agent gefunden. Richte unter
+            <em>Einstellungen → Sprachassistenten</em> einen AI-basierten
+            Agenten (OpenAI, Anthropic, Gemini, …) ein, damit die KI freie
+            Fragen beantworten kann.
+          </p>
+        ` : agents.length > 1 ? `
+          <div class="chat-agent-row">
+            <label class="muted small" for="chat-agent-${this._escapeAttr(p.plant_id)}">KI-Agent:</label>
+            <select
+              id="chat-agent-${this._escapeAttr(p.plant_id)}"
+              class="chat-agent-select"
+              data-chat-agent-select
+            >
+              ${agents.map((a) => `
+                <option value="${this._escapeAttr(a.entity_id)}" ${a.entity_id === activeAgent ? "selected" : ""}>
+                  ${this._escape(a.name)}
+                </option>
+              `).join("")}
+            </select>
+          </div>
+        ` : ""}
         ${messages.length === 0 ? `
           <p class="muted small">Stell eine Frage zu Pflege, Standort, Krankheiten oder allem rund um deine Pflanze.</p>
         ` : `
@@ -2587,6 +2689,32 @@ class PlantCarePanel extends HTMLElement {
         margin-bottom: 8px;
       }
       .chat-head h3 { margin: 0; font-size: 1rem; }
+      .chat-agent-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .chat-agent-select {
+        flex: 1;
+        min-width: 0;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--divider-color, #d4d4d4);
+        background: var(--card-background-color, #fff);
+        color: inherit;
+        font-family: inherit;
+        font-size: 0.88rem;
+      }
+      .chat-warning {
+        margin: 0 0 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        color: var(--primary-text-color, inherit);
+        line-height: 1.4;
+      }
       .chat-messages {
         display: flex;
         flex-direction: column;
