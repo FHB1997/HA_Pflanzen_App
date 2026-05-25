@@ -444,6 +444,42 @@ class PlantCarePanel extends HTMLElement {
     return this._escape(s);
   }
 
+  /* ------------------------------- Icons --------------------------------- */
+  // Stroke-basierte SVG-Icons, currentColor → erben Farbe vom Button.
+  // Größe steuert die CSS, hier nur die Pfade. viewBox einheitlich 24×24.
+  _icon(name) {
+    const paths = {
+      menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+      calendar:
+        '<rect x="3" y="5" width="18" height="16" rx="2"/>' +
+        '<line x1="3" y1="9" x2="21" y2="9"/>' +
+        '<line x1="8" y1="3" x2="8" y2="7"/>' +
+        '<line x1="16" y1="3" x2="16" y2="7"/>',
+      "view-grid":
+        '<rect x="3" y="3" width="7" height="7" rx="1.2"/>' +
+        '<rect x="14" y="3" width="7" height="7" rx="1.2"/>' +
+        '<rect x="3" y="14" width="7" height="7" rx="1.2"/>' +
+        '<rect x="14" y="14" width="7" height="7" rx="1.2"/>',
+      "view-list":
+        '<line x1="8" y1="6" x2="21" y2="6"/>' +
+        '<line x1="8" y1="12" x2="21" y2="12"/>' +
+        '<line x1="8" y1="18" x2="21" y2="18"/>' +
+        '<circle cx="4" cy="6" r="1.4"/>' +
+        '<circle cx="4" cy="12" r="1.4"/>' +
+        '<circle cx="4" cy="18" r="1.4"/>',
+      check:
+        '<rect x="3" y="3" width="18" height="18" rx="3"/>' +
+        '<polyline points="8 12 11 15 16 9"/>',
+      plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+      "arrow-left":
+        '<line x1="19" y1="12" x2="5" y2="12"/>' +
+        '<polyline points="12 19 5 12 12 5"/>',
+    };
+    const inner = paths[name];
+    if (!inner) return "";
+    return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+  }
+
   _relativeTime(iso) {
     if (!iso) return "noch nie";
     const t = Date.parse(iso);
@@ -503,7 +539,7 @@ class PlantCarePanel extends HTMLElement {
       <style>${this._styles()}</style>
       <div class="app">
         <header class="topbar">
-          <button class="icon-btn ha-menu" data-action="toggle-ha-menu" aria-label="HA-Seitenleiste umschalten" title="Seitenleiste">☰</button>
+          <button class="icon-btn ha-menu" data-action="toggle-ha-menu" aria-label="HA-Seitenleiste umschalten" title="Seitenleiste">${this._icon("menu")}</button>
           <div class="brand">
             <span class="leaf">🌿</span>
             <h1>Plant Care</h1>
@@ -513,16 +549,16 @@ class PlantCarePanel extends HTMLElement {
             <button class="btn ghost" data-action="bulk-cancel">Abbrechen</button>
           ` : `
             <div class="topbar-actions">
-              <button class="icon-btn" data-action="show-calendar" aria-label="Kalender" title="Kalender">📅</button>
-              <button class="icon-btn" data-action="toggle-list-mode" aria-label="Ansicht wechseln" title="${this._listMode === "compact" ? "Kachel-Ansicht" : "Kompakte Liste"}">${this._listMode === "compact" ? "▦" : "▤"}</button>
-              <button class="icon-btn" data-action="bulk-toggle" aria-label="Mehrfachauswahl" title="Auswahl">☑</button>
+              <button class="icon-btn" data-action="show-calendar" aria-label="Kalender" title="Kalender">${this._icon("calendar")}</button>
+              <button class="icon-btn" data-action="toggle-list-mode" aria-label="Ansicht wechseln" title="${this._listMode === "compact" ? "Kachel-Ansicht" : "Kompakte Liste"}">${this._icon(this._listMode === "compact" ? "view-grid" : "view-list")}</button>
+              <button class="icon-btn" data-action="bulk-toggle" aria-label="Mehrfachauswahl" title="Auswahl">${this._icon("check")}</button>
             </div>
-            <button class="btn primary cta" data-action="new">+ Neue Pflanze</button>
+            <button class="btn primary cta" data-action="new"><span class="cta-icon">${this._icon("plus")}</span><span>Neue Pflanze</span></button>
           `) : this._view === "calendar" ? `
-            <button class="icon-btn" data-action="show-list" aria-label="Listenansicht" title="Liste">📋</button>
-            <button class="btn primary cta" data-action="new">+ Neue Pflanze</button>
+            <button class="icon-btn" data-action="show-list" aria-label="Listenansicht" title="Liste">${this._icon("view-list")}</button>
+            <button class="btn primary cta" data-action="new"><span class="cta-icon">${this._icon("plus")}</span><span>Neue Pflanze</span></button>
           ` : `
-            <button class="btn ghost" data-action="back">← Zurück</button>
+            <button class="btn ghost back" data-action="back"><span class="cta-icon">${this._icon("arrow-left")}</span><span>Zurück</span></button>
           `}
         </header>
         ${this._toast ? this._renderToast() : ""}
@@ -2032,8 +2068,7 @@ class PlantCarePanel extends HTMLElement {
         border: none;
         background: transparent;
         cursor: pointer;
-        font-size: 1.1rem;
-        line-height: 1;
+        line-height: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -2041,16 +2076,31 @@ class PlantCarePanel extends HTMLElement {
         color: inherit;
         font-family: inherit;
         transition: background .15s, transform .08s;
+        flex-shrink: 0;
       }
       .icon-btn:hover { background: var(--sage-bg); }
       .icon-btn:active { transform: scale(0.94); }
-      .icon-btn.ha-menu {
-        flex-shrink: 0;
+      .icon-btn .icon {
+        width: 22px;
+        height: 22px;
+        display: block;
       }
       .topbar .cta {
         flex-shrink: 0;
-        padding: 9px 16px;
+        padding: 9px 16px 9px 12px;
         font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .topbar .cta .icon,
+      .topbar .back .icon { width: 18px; height: 18px; }
+      .cta-icon { display: inline-flex; line-height: 0; }
+      .topbar .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding-left: 10px;
       }
       .muted { color: var(--secondary-text-color, #777); }
       .small { font-size: 0.85rem; }
