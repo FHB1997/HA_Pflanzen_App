@@ -97,20 +97,32 @@ plant-care-ha/
 ├── hacs.json                              # HACS-Metadaten (Name, Min-HA-Version)
 ├── README.md                              # User-Doku (Installation, Bedienung)
 ├── info.md                                # HACS-Anzeige-Text
+├── PROJECT PLAN.md                        # Dieses Dokument (Ground Truth)
+├── pytest.ini, requirements_test.txt
 ├── .gitignore
 │
+├── blueprints/automation/plant_care/
+│   └── water_reminder.yaml                # Pro-Pflanze-Reminder-Blueprint
+│
+├── tests/                                 # Pytest-Suite für _utils.py
+│   ├── conftest.py, test_utils.py, ...
+│
 └── custom_components/plant_care/
-    ├── manifest.json                      # Integration-Metadaten
-    ├── __init__.py                        # Setup + Services + Panel-Registration
-    ├── config_flow.py                     # UI für "Integration hinzufügen"
+    ├── manifest.json                      # Integration-Metadaten (Version!)
+    ├── __init__.py                        # Setup + alle Service-Handler + Panel-Reg
+    ├── config_flow.py                     # ConfigFlow + OptionsFlow (mit Test-Toggle)
     ├── const.py                           # Alle Konstanten zentral
-    ├── coordinator.py                     # PlantCareCoordinator: Datenhaltung
+    ├── coordinator.py                     # PlantCareCoordinator: Daten + Reminders
     ├── sensor.py                          # PlantSensor Entity-Klasse
+    ├── calendar.py                        # PlantCareCalendar Entity (Pflege-Termine)
+    ├── http.py                            # PlantPhotoUploadView + Foto-Helfer
+    ├── _utils.py                          # Pure Helpers (isolierte Unit-Tests)
     ├── services.yaml                      # Service-Beschreibungen für HA-UI
     ├── strings.json                       # Default-Texte (englisch)
     │
     ├── frontend/
-    │   └── plant-care-panel.js            # ALLES UI: Web Component + Styles
+    │   ├── plant-care-panel.js            # Sidebar-Panel (Web Component + Styles)
+    │   └── plant-care-card.js             # Lovelace Custom Card
     │
     └── translations/
         ├── de.json                        # Deutsche Übersetzungen
@@ -121,190 +133,99 @@ plant-care-ha/
 
 |Datei                |Was passiert dort                                          |Was NICHT                               |
 |---------------------|-----------------------------------------------------------|----------------------------------------|
-|`__init__.py`        |Setup, Service-Registration, Panel-Registration            |Keine Pflanzen-Logik (siehe coordinator)|
-|`coordinator.py`     |Plants-Dict halten, Store-IO, CRUD                         |Keine HA-Entity-Logik                   |
+|`__init__.py`        |Setup, Service-Registration, Panel-Registration mit `?v=` Cache-Buster |Keine Pflanzen-Logik (siehe coordinator)|
+|`coordinator.py`     |Plants-Dict halten, Store-IO, CRUD, Reminder-Eval, Migrations |Keine HA-Entity-Logik                |
 |`sensor.py`          |PlantSensor Entity, Status-Berechnung, Sensor-Übersteuerung|Keine Persistenz                        |
-|`config_flow.py`     |UI-Setup (minimal, eine Instanz)                           |Keine Optionen                          |
+|`calendar.py`        |PlantCareCalendar-Entity mit kommenden Pflege-Events       |Keine Eventschreibung                   |
+|`http.py`            |HTTP-View für Foto-Upload, Storage-Pfade                   |Keine Pflanzen-Logik                    |
+|`_utils.py`          |Pure Helpers (ISO-Parse, Quiet-Hours, Notify-Target-Parser, …) – unit-getestet|Kein I/O, kein HA-State |
+|`config_flow.py`     |UI-Setup + Options-Flow inkl. Test-Benachrichtigungs-Toggle|Keine Service-Logik                     |
 |`services.yaml`      |Beschreibung für HA Developer Tools                        |Keine Logik                             |
-|`plant-care-panel.js`|Komplette UI, alle Views, Styles, Events, AI-Calls         |Keine Persistenz-Annahmen               |
+|`plant-care-panel.js`|Komplette Panel-UI, alle Views, Styles, Events, AI-Calls   |Keine Persistenz-Annahmen               |
+|`plant-care-card.js` |Eigenständige Lovelace-Card (nicht das Panel)              |Keine Edit-/Setup-Flows                 |
 
 -----
 
-## 4. Stand: Was funktioniert (Phase 1 – DONE)
+## 4. Stand: Was funktioniert
 
 ### Backend
 
-- ✅ Config Flow (einmalige Einrichtung)
+- ✅ Config Flow (einmalige Einrichtung) + Options-Flow mit Test-Benachrichtigung
 - ✅ Storage-Persistenz via `homeassistant.helpers.storage.Store`
-- ✅ 5 Services: `add_plant`, `update_plant`, `remove_plant`, `water_plant`, `fertilize_plant`
-- ✅ `add_plant` mit `SupportsResponse.OPTIONAL` → gibt `plant_id` zurück
+- ✅ One-Time-Migration: `location_tips` → `tips` (konsolidiert)
+- ✅ Services: `add_plant`, `update_plant`, `remove_plant`, `water_plant`, `fertilize_plant`, `send_reminders`, `send_test_notification`, `add_plant_photo`, `remove_plant_photo`, `diagnose_plant` (KI **oder** manuell), `resolve_treatment`, `get_events`
 - ✅ Sensor-Entities pro Pflanze mit dynamischer Status-Berechnung
 - ✅ Sensor-Übersteuerung (<20% / >50%) für moisture_sensor
-- ✅ Panel-Registration mit `module_url` (ESM)
-- ✅ Statischer Pfad für Frontend-JS und Foto-Uploads
-- ✅ Dispatcher-Signals für Updates (`SIGNAL_PLANTS_UPDATED`, `SIGNAL_NEW_PLANT`)
-- ✅ Translations DE/EN
+- ✅ Calendar-Platform: `calendar.plant_care` mit anstehenden Pflege-Terminen
+- ✅ Panel-Registration mit `module_url` (ESM) + `?v=<manifest.version>` Cache-Buster
+- ✅ Statische Pfade für Frontend-JS und Foto-Uploads
+- ✅ Dispatcher-Signals für Updates (`SIGNAL_PLANTS_UPDATED`, `SIGNAL_NEW_PLANT`, `SIGNAL_REMOVE_PLANT`)
+- ✅ Translations DE/EN inkl. Options-Errors
+- ✅ Anti-Spam-Throttle für Diagnose-Anfragen (60s)
+- ✅ Multi-Notify-Targets (komma-separiert, parallel) + Actionable Notifications
+- ✅ Foto-Verlauf mit FIFO-Cap (100 / Pflanze)
 
 ### Frontend
 
-- ✅ Listenansicht (Grid) mit Pflanzenkarten
-- ✅ Add-Formular mit Foto-Upload (Resize auf 600px, JPEG 0.82)
-- ✅ Edit-Formular
-- ✅ Detail-Ansicht mit Gieß-/Düngekarten + Live-Feuchtebar
+- ✅ Listenansicht (Grid) mit Pflanzenkarten + Quick-Actions (💧/🌱) auf jeder Karte
+- ✅ Detail-Ansicht mit kompaktem Header, Quick-Actions unter dem Foto, Wiki-Text, kombinierten Tipps, Treatments-Block, Foto-Verlauf, Verlaufsdiagrammen
+- ✅ Add-/Edit-Formular mit Foto-Upload (Resize auf 600px, JPEG 0.82)
+- ✅ KI-Vorschlag via `ai_task.generate_data` (Structured Output) – kombinierte Pflege- & Standort-Tipps in einem Feld, plus Wiki-Beschreibung
+- ✅ Foto-Erkennung mit Konfidenz-Anzeige
+- ✅ Behandlungs-Modal mit Mode-Picker (📷 Foto-Diagnose / ✏️ Manuell)
+- ✅ Bulk-Modus für Mehrfach-Selektion (Gegossen / Gedüngt)
+- ✅ Räume-Filter mit Auto-Generation aus den vorhandenen Räumen
+- ✅ Kalender-View / Agenda mit Heute/Morgen-Hervorhebung
 - ✅ Empty-State mit SVG-Illustration
-- ✅ KI-Vorschlag-Button via `ai_task.generate_data` (Structured Output)
 - ✅ Toast-Notifications (success/error/info)
 - ✅ Auto-Detection von AI-Task-Entitäten + Moisture-Sensoren
 - ✅ Responsive (Mobile-Breakpoint 640px)
 - ✅ HA-Theme-Variable-kompatibel (Light/Dark Mode)
 - ✅ Botanisches Design (sage-grüner Akzent, organische Touches)
+- ✅ Mobile-Tastatur-Fix: `_render()` überspringt re-renders, solange ein Input fokussiert ist (sonst Keyboard-Dismiss bei jedem HA-State-Update)
+
+### Lovelace
+
+- ✅ Plant Care Custom Card (`plant-care-card.js`) für reguläre Dashboards
+- ✅ Pflege-Erinnerungs-Blueprint (`blueprints/automation/plant_care/water_reminder.yaml`)
 
 -----
 
-## 5. Phase 2: Geplante Features (TODO)
+## 5. Phase 2: Done
 
-Diese Features sind die nächsten Bauschritte. Priorität-Reihenfolge ist sinnvoll, aber nicht zwingend.
+Alle Phase-2-Features sind ausgeliefert. Kurzer Abriss + jeweilige
+aktuelle Stelle im Code:
 
-### 2.1 Foto-basierte Pflanzenerkennung (HOCH)
+| Feature | Status | Wo |
+|---|---|---|
+| Foto-basierte Pflanzenerkennung | ✅ | `_aiIdentifyFromPhoto` in `plant-care-panel.js`, Upload-View in `http.py` |
+| Verlaufsdiagramme (SVG-Linechart, 90 Tage) | ✅ | `_renderHistorySection` in `plant-care-panel.js`, `water_history`/`fertilize_history` im Coordinator |
+| Pflege-Erinnerungen | ✅ | Integriert (Options-Flow + Scan-Tick in `coordinator.evaluate_reminders`) **und** Blueprint (`blueprints/automation/plant_care/water_reminder.yaml`) |
+| Lovelace Custom Card | ✅ | `frontend/plant-care-card.js` |
+| Räume-Filter | ✅ | `ROOM_TYPES` in `const.py`, Filter-Pills in der Listenansicht |
+| Behandlungen / Krankheitserkennung | ✅ | Diagnose-Modal mit Foto-KI **und** manuellem Text-Pfad |
+| Mehrere Notify-Targets parallel | ✅ | `parse_notify_targets` in `_utils.py`, Multi-Send in `coordinator.evaluate_reminders` |
+| Test-Benachrichtigung | ✅ | `coordinator.send_test_notification` + Options-Flow-Toggle |
+| Foto-Verlauf pro Pflanze | ✅ | `MAX_PHOTOS_PER_PLANT` (100, FIFO) im Coordinator, Lightbox im Panel |
+| Kalender-Platform | ✅ | `calendar.py` mit `calendar.plant_care`-Entity + In-Panel-Agenda |
 
-**Was:** User schießt Foto → KI erkennt die Art automatisch.
+### Bewusst nicht gebaut: Statische Pflanzen-Bibliothek
 
-**Wo:** `plant-care-panel.js` im Add-Form. Aktuell ist `ai-input` ein Text-Feld. Es soll zusätzlich ein Button „📷 Per Foto erkennen” geben.
-
-**Umsetzung:**
-
-- `ai_task.generate_data` unterstützt `attachments`-Parameter mit Media-IDs
-- Foto muss zuerst irgendwo abgelegt werden, wo HA es als Media findet
-- Optionen:
-  - (a) Backend HTTP-View die Base64-Bilder annimmt und in `media_source` ablegt
-  - (b) Direkt als `media_content_id` mit data-URI? (Untestiert, vermutlich nicht supported)
-  - (c) Über `image_processing` Component?
-
-**Empfehlung:** Option (a). Backend-View `POST /api/plant_care/upload` die Base64 → Datei in `www/plant_care/<uuid>.jpg` schreibt und `local/plant_care/<uuid>.jpg` als URL zurückgibt. Diese URL kann dann als Attachment für AI Task verwendet werden.
-
-**Service-Call dann etwa:**
-
-```javascript
-hass.callService("ai_task", "generate_data", {
-  task_name: "plant_id_from_photo",
-  instructions: "Welche Pflanze ist auf diesem Bild? Antworte mit JSON...",
-  attachments: [{media_content_id: "media-source://local/plant_care/abc.jpg",
-                 media_content_type: "image/jpeg"}],
-  structure: {...}
-}, undefined, true, true);
-```
-
-### 2.2 Verlaufsdiagramme (MITTEL)
-
-**Was:** Anzeige “Wann wurde gegossen/gedüngt” über die letzten Wochen/Monate.
-
-**Datenquelle:** Aktuell speichern wir nur `last_watered` und `last_fertilized` als Strings. Wir brauchen eine History.
-
-**Optionen:**
-
-- (a) HAs eingebaute Recorder/Statistics nutzen – `sensor.plant_*` State-Changes werden eh schon in `recorder` gespeichert
-- (b) Eigene Liste in coordinator: `plant["water_history"] = ["2026-05-20T10:00:00Z", ...]`
-
-**Empfehlung:** Beides. (a) für „Live”-Diagramme über HAs `history-graph` Card. (b) für UI-Verlauf in unserem Panel (max. 50 Einträge).
-
-**Frontend:** Im Detail-View nach `detail-grid` eine neue Sektion „Verlauf” mit SVG-Linechart über die letzten 90 Tage.
-
-### 2.3 Pflege-Erinnerungen (HOCH)
-
-**Was:** Push-Benachrichtigung wenn Pflanze Wasser/Dünger braucht.
-
-**Optionen:**
-
-- (a) Pre-built Blueprint im Repo unter `blueprints/automation/plant_care/water_reminder.yaml` – User importiert nach Bedarf
-- (b) Built-in Automatisierung via `automation.async_create` beim Setup (zu invasiv)
-- (c) Notification-Service direkt aus Backend triggern (auch zu invasiv)
-
-**Empfehlung:** (a). Blueprint erstellen, in README dokumentieren.
-
-**Blueprint-Beispiel:**
-
-```yaml
-blueprint:
-  name: Plant Care - Pflege-Erinnerung
-  description: Benachrichtigung wenn eine Pflanze Wasser/Dünger braucht
-  domain: automation
-  input:
-    plant_entity:
-      name: Pflanze
-      selector: {entity: {domain: sensor, integration: plant_care}}
-    notify_service:
-      name: Notify-Service
-      selector: {text: {}}
-    quiet_hours_start: ...
-    quiet_hours_end: ...
-trigger:
-  - platform: state
-    entity_id: !input plant_entity
-    to: needs_water
-  - platform: state
-    entity_id: !input plant_entity
-    to: needs_both
-condition:
-  - condition: time
-    after: !input quiet_hours_end
-    before: !input quiet_hours_start
-action:
-  - service: !input notify_service
-    data:
-      message: "🌿 {{ trigger.to_state.attributes.friendly_name }} braucht Wasser!"
-```
-
-### 2.4 Lovelace Custom Card (NIEDRIG)
-
-**Was:** Mini-Karte für reguläre HA-Dashboards die eine oder mehrere Pflanzen kompakt anzeigt.
-
-**Wo:** Neue Datei `custom_components/plant_care/frontend/plant-care-card.js`.
-
-**Wichtig:** Eigene Custom Element, NICHT das gleiche wie das Panel. Custom Cards in HA müssen `setConfig(config)` implementieren und sich bei `customCards` registrieren.
-
-**Boilerplate:**
-
-```javascript
-class PlantCareCard extends HTMLElement {
-  setConfig(config) {
-    if (!config.entity) throw new Error("entity ist erforderlich");
-    this._config = config;
-  }
-  set hass(hass) { /* render */ }
-  static getStubConfig() { return { entity: "sensor.plant_monstera" }; }
-}
-customElements.define("plant-care-card", PlantCareCard);
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "plant-care-card",
-  name: "Plant Care Card",
-  description: "Zeigt eine Pflanze von Plant Care",
-});
-```
-
-Card muss in `__init__.py` auch als Static Path registriert und in `manifest.json` aufgeführt werden.
-
-### 2.5 Mehrere Pflanzen-Gruppen / Räume (NIEDRIG)
-
-**Was:** Pflanzen gruppieren nach Raum, Gießplan etc. Aktuell ist `location` nur ein Freitext-Feld.
-
-**Umsetzung:** Im Frontend Filter-Tabs oben in der Liste („Alle | Wohnzimmer | Schlafzimmer | …”). Auto-Generation aus den vorhandenen `location`-Werten.
-
-### 2.6 Pflanzen-Bibliothek (NIEDRIG)
-
-**Was:** Vorgefertigte Pflanzenprofile (Top 50 Zimmerpflanzen) mit empfohlenen Intervallen. Schnelle Auswahl ohne KI.
-
-**Wo:** Statisches JSON `frontend/plant_library.json` mit `{species, common_name, water_days, fertilize_days, image_url, tips}` für ~50 häufige Arten.
+Ursprünglich war eine `plant_library.json` mit ~50 vorgefertigten Profilen
+geplant. **Entfernt in Version 0.2.0:** Der KI-Vorschlag liefert für
+beliebige Arten bessere Daten (Wiki-Beschreibung, Standort-Kontext,
+Foto-Erkennung) – die statische Liste war redundant.
 
 -----
 
 ## 6. Phase 3: Ideen für später
 
-- 📷 **Krankheitserkennung** per KI-Foto-Analyse (gelbe Blätter, Schädlinge etc.)
-- 🌡️ **Mehr Sensor-Typen:** Licht, Temperatur, Nährstoffe (Mi Flora hat alles)
+- 🌡️ **Mehr Sensor-Typen:** Licht, Temperatur, Nährstoffe (Mi Flora hat alles) – aktuell nur Bodenfeuchte
 - 🤝 **Pflanzen-Tausch-Feature** – Empfehlungen wann Stecklinge möglich
 - 📅 **Urlaubsmodus** – pausiert Benachrichtigungen, sendet Liste an Pflanzensitter
-- 🎙️ **Voice-Integration** – „Hey Nabu, hab grad die Monstera gegossen” → Service-Call
+- 🎙️ **Voice-Integration** – „Hey Nabu, hab grad die Monstera gegossen" → Service-Call
+- 🌍 **Frontend-Lokalisierung** – Panel ist derzeit nur Deutsch
+- 📊 **Statistik-Dashboard** – Wasser-/Düngerverbrauch über Monate, Anzeichen von Stress
 
 -----
 
@@ -331,13 +252,28 @@ Falls das funktioniert, kann `_callService` deutlich vereinfacht werden.
 
 ### Foto-Speicherung
 
-Aktuell: Base64-Data-URLs direkt im Plant-Object. **Funktioniert** für ~50 Pflanzen mit je ~50KB resized JPEGs (= 2,5 MB im Storage).
+**Implementiert als File-Storage** (nicht mehr Data-URLs):
 
-**Skalierungs-Plan:** Wenn das zu groß wird, separates File-Storage. Stub im Backend gibt’s schon:
+- Uploads gehen via `PlantPhotoUploadView` (`POST /api/plant_care/upload`) in `<config>/plant_care_photos/<plant_id>/<uuid>.jpg`
+- Static-Path `/api/plant_care/photos/` serviert das Verzeichnis
+- Plant-Object speichert nur den relativen Pfad, nicht die Bilddaten
+- Alte Data-URL-Storage-Einträge werden beim Coordinator-Load via `_migrate_data_url_photos` automatisch in Dateien überführt
+- Foto-Verlauf: bis zu 100 Fotos pro Pflanze, FIFO. Löschen einer Pflanze räumt alle ihre Bilder vom Disk weg
 
-- `plant_care_photos/` Verzeichnis wird beim Setup angelegt
-- Static Path `/api/plant_care/photos/` ist registriert
-- Es fehlt nur die HTTP-View die Uploads annimmt
+### Cache-Buster fürs Panel-JS
+
+Browser cachen `plant-care-panel.js` aggressiv. Beim Panel-Register hängt
+`__init__.py` daher `?v=<integration.version>` an `module_url`. Jeder
+Bump in `manifest.json` invalidiert automatisch den Cache. **Daher:
+bei jeder UI-relevanten Änderung manifest.json mitbumpen.**
+
+### Render-Skipping bei fokussiertem Input
+
+`set hass(hass)` triggert auf jedes HA-State-Update einen Render. Solange
+ein `<input>`/`<textarea>`/`<select>` im Shadow-Root den Fokus hat, bricht
+`_render()` ohne `force=true` ab – sonst zerstört `innerHTML = …` den
+Input und Mobile-Browser blenden die On-Screen-Tastatur aus. Explizite
+Renders (Submit, View-Wechsel, AI-Suggest) laufen trotzdem.
 
 ### Entity-IDs
 
@@ -433,12 +369,15 @@ INFO  Plant Care: 0 Pflanzen geladen
 
 Vor einem neuen Release auf GitHub:
 
-- [ ] Version in `manifest.json` hochzählen
+- [ ] Version in `manifest.json` hochzählen (auch bei reinen Frontend-Änderungen → triggert den `?v=`-Cache-Buster)
 - [ ] CHANGELOG.md aktualisieren (falls noch nicht vorhanden anlegen)
-- [ ] README aktuell halten (neue Features dokumentieren)
-- [ ] Lokal mit echter HA-Instanz getestet
-- [ ] Lokal mit AI Task getestet (mindestens ein Provider)
-- [ ] GitHub Release mit Tag (`v0.2.0`) erstellen – HACS nutzt Tags
+- [ ] README + info.md + PROJECT PLAN aktuell halten (neue Features dokumentieren)
+- [ ] `python -m pytest tests/ -q` grün
+- [ ] `node --check custom_components/plant_care/frontend/plant-care-panel.js` grün
+- [ ] Lokal mit echter HA-Instanz getestet (mind. Add/Edit/Detail-Flow)
+- [ ] Lokal mit AI Task getestet (mindestens ein Provider) – sowohl Name-Vorschlag als auch Foto-Erkennung
+- [ ] Test-Benachrichtigung via Options-Flow ausgelöst
+- [ ] GitHub Release mit Tag (`v0.2.x`) erstellen – HACS nutzt Tags
 
 -----
 
@@ -470,8 +409,12 @@ Wenn du frisch in dieses Projekt einsteigst:
 - Bevorzugt konkrete Beispiele statt abstrakter Konzepte
 - Mag es wenn Komplexität reduziert wird – kein Over-Engineering
 
-**Phase 1 wurde gebaut in einer einzigen Session.** Die Codebasis ist klein genug, dass du sie komplett im Context halten kannst (~1500 Zeilen Python + JS).
+**Phase 1 wurde gebaut in einer einzigen Session.** Inzwischen ist auch
+Phase 2 komplett ausgeliefert (siehe Abschnitt 5). Die Codebasis ist
+gewachsen (Panel-JS ~2.7k Zeilen, Coordinator ~750 Zeilen) – für gezielte
+Arbeit weiterhin gut im Context haltbar, für Quer-Lesungen lieber mit
+`grep` / `Read`-Ranges arbeiten.
 
 -----
 
-*Stand: Mai 2026 · Phase 1 abgeschlossen · Bereit für Phase 2*
+*Stand: Mai 2026 · Phase 1 + Phase 2 ausgeliefert (Version 0.2.8) · Sammelbecken Phase 3 in Abschnitt 6*

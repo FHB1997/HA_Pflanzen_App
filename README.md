@@ -5,14 +5,17 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant. Plant Care besteht aus e
 ## Features
 
 - Sidebar-Panel mit Listen-, Detail- und Bearbeitungsansicht
-- KI-Vorschläge für Pflegeintervalle und Pflanzenarten über HAs natives AI Task System
+- KI-Vorschläge für Pflegeintervalle und Pflanzenarten über HAs natives AI Task System (Standort + Licht fließen in den Prompt ein, Wiki-Beschreibung kommt mit)
 - Foto-basierte Pflanzenerkennung (ab HA 2025.7)
+- Behandlungs-Feature („Was ist los?") mit KI-Foto-Diagnose **oder** manueller Textbeschreibung
 - Optionale Verknüpfung mit Bodenfeuchte-Sensoren (übersteuert das Zeit-Intervall)
-- Pflanzen-Bibliothek mit ~50 häufigen Zimmerpflanzen
 - Verlaufsdiagramme für Gieß- und Düngevorgänge
-- Räume-Filter
-- Pflege-Erinnerungen via Blueprint
+- Foto-Verlauf pro Pflanze (max. 100, FIFO)
+- Räume-Filter + Bulk-Aktionen für mehrere Pflanzen
+- Quick-Action-Buttons (💧 / 🌱) direkt auf jeder Pflanzen-Karte
+- Pflege-Erinnerungen integriert *oder* via Blueprint, inkl. Test-Benachrichtigung
 - Lovelace Custom Card für reguläre Dashboards
+- Cache-Buster für das Panel-JS via Manifest-Version
 
 ## Installation via HACS
 
@@ -43,28 +46,36 @@ Nach der Installation erscheint **Plant Care** in der Sidebar.
 
 ### Pflanze hinzufügen
 
-1. Panel öffnen → **Neue Pflanze**
-2. Name eingeben (z.B. "Monstera") → **KI-Vorschlag holen** → Form wird automatisch befüllt
-3. Optional: Foto hochladen, Moisture-Sensor verknüpfen, Tipps anpassen
+1. Panel öffnen → **+ Neue Pflanze**
+2. Name eingeben (z.B. "Monstera") → **✨ KI-Vorschlag** → Form wird automatisch befüllt
+3. Optional: Foto hochladen (oder per **📷 Per Foto erkennen** identifizieren lassen), Moisture-Sensor verknüpfen, Tipps anpassen
 4. **Speichern**
 
 ### Standort-Q&A
 
 Beim Anlegen kannst du optional **Raum** (Dropdown) und
 **Lichtintensität** angeben. Beide Werte fließen in den KI-Vorschlag
-ein → die KI passt Gieß- und Düngeintervalle daran an und gibt
-zusätzlich Standort-spezifische Tipps zurück. Wenn der gewählte
-Standort für die Pflanze ungeeignet ist (z.B. Sukkulente im dunklen
-Bad), zeigt der Detail-View oben ein oranges Warnbanner, das du per
-✕-Tap ausblenden kannst.
+ein → die KI passt Gieß- und Düngeintervalle daran an und liefert im
+Feld **Pflege- & Standort-Tipps** einen kombinierten Text (3-5 Sätze)
+mit den wichtigsten Pflegehinweisen *plus* dem, was beim genannten
+Raum + Licht zu beachten ist. Wenn der gewählte Standort für die
+Pflanze ungeeignet ist (z.B. Sukkulente im dunklen Bad), zeigt der
+Detail-View oben ein oranges Warnbanner.
 
 Beide Felder sind optional – Q&A leer lassen funktioniert wie vorher.
 Bei späterem Umzug: Felder im Edit-Form ändern, dann KI-Vorschlag
-erneut tippen für aktualisierte Intervalle.
+erneut tippen für aktualisierte Intervalle und Tipps.
 
 ### Pflanze per Foto erkennen (ab HA 2025.7)
 
 Im Add-Form auf **📷 Per Foto erkennen** klicken → Foto aufnehmen oder hochladen → die KI identifiziert die Art und schlägt Pflegeintervalle vor.
+
+### Quick-Actions auf der Karte
+
+Jede Pflanzen-Karte in der Übersicht hat rechts unten zwei runde
+Icon-Buttons: **💧** markiert sofort als gegossen, **🌱** als gedüngt.
+Ein Toast bestätigt; die Detail-Ansicht muss dafür nicht geöffnet
+werden. Im Bulk-Modus sind die Buttons ausgeblendet.
 
 ### Mehrere Pflanzen gleichzeitig erledigen
 
@@ -101,16 +112,19 @@ Pflanze werden alle ihre Fotos vom Disk entfernt.
 ### Pflanzen-Sprechstunde
 
 Sieht eine Pflanze auffällig aus (gelbe Blätter, Schädlinge)? Im Detail-View
-**+ Was ist los?** tappen → Foto auswählen → die AI analysiert mögliche
-Ursachen und schlägt konkrete Behandlungsschritte vor. Speichern legt eine
-**Behandlung** mit Foto + Diagnose + Wiedervorlage-Datum an.
+**+ Was ist los?** tappen → es öffnet sich ein Modal mit zwei Wegen:
 
-Sobald die Wiedervorlage fällig ist, schaltet der Plant-Sensor auf Status
-`needs_attention` und Plant Care versendet eine Reminder-Notification mit
-den Buttons **✓ Erledigt** / **✗ Verwerfen** / **💤 Snooze 1d**.
+- **📷 Foto-Diagnose** – KI analysiert ein hochgeladenes Bild und schlägt
+  konkrete Behandlungsschritte vor (HA 2025.7+ mit AI Task).
+- **✏️ Selbst beschreiben** – manuelles Formular für Diagnose, Schritte,
+  Wiedervorlage und Schweregrad. Kein AI Task nötig.
 
-Voraussetzung: AI Task ist konfiguriert (HA 2025.7+). Anti-Spam-Throttle:
-mindestens 60s zwischen Diagnose-Anfragen pro Pflanze.
+Beide Wege legen eine **Behandlung** mit Wiedervorlage-Datum an. Sobald
+diese fällig ist, schaltet der Plant-Sensor auf Status `needs_attention`
+und Plant Care versendet eine Reminder-Notification mit den Buttons
+**✓ Erledigt** / **✗ Verwerfen** / **💤 Snooze 1d**.
+
+Anti-Spam-Throttle: mindestens 60s zwischen Diagnose-Einträgen pro Pflanze.
 
 ### Sensor-Verknüpfung
 
@@ -135,7 +149,11 @@ Eine zentrale Konfiguration, gilt für **alle** Pflanzen, ohne Automation pro Pf
    Jede Notification wird an alle Targets parallel verschickt; Mobile-App-
    Targets bekommen automatisch die Action-Buttons.
 4. Optional: Titel, Ruhezeiten, Mindestabstand zwischen Erinnerungen
-5. Speichern
+5. **Test-Benachrichtigung beim Speichern senden** anhaken, falls du
+   die eingetragenen Targets direkt verifizieren willst – ein statischer
+   Test-Push geht raus, bevor gespeichert wird. Die Option resettet sich
+   nach dem Save automatisch.
+6. Speichern
 
 Plant Care prüft jede Pflanze alle 30 Minuten. Bei Status `needs_water` /
 `needs_fertilizer` / `needs_both` außerhalb der Ruhezeit und außerhalb des
@@ -200,6 +218,12 @@ Eine kompakte Karte für reguläre Dashboards.
 | `plant_care.water_plant` | "Jetzt gegossen" markieren | – |
 | `plant_care.fertilize_plant` | "Jetzt gedüngt" markieren | – |
 | `plant_care.send_reminders` | Erinnerungen jetzt senden (manuell) | `{sent}` |
+| `plant_care.send_test_notification` | Test-Push an alle konfigurierten Notify-Targets | `{targets, errors}` |
+| `plant_care.add_plant_photo` | Foto in den Foto-Verlauf einfügen | `{photo_id}` |
+| `plant_care.remove_plant_photo` | Foto aus dem Verlauf löschen | – |
+| `plant_care.diagnose_plant` | Behandlung anlegen (KI-Foto **oder** manuell – `photo_path` optional) | `{treatment_id}` |
+| `plant_care.resolve_treatment` | Offene Behandlung quittieren / verwerfen | – |
+| `plant_care.get_events` | Kommende Pflege-Termine als Liste | `{events}` |
 
 ## Troubleshooting
 
@@ -207,8 +231,11 @@ Eine kompakte Karte für reguläre Dashboards.
 |---|---|---|
 | Panel fehlt in Sidebar | Setup-Fehler | HA-Log prüfen, ggf. Integration neu hinzufügen |
 | AI-Vorschlag liefert nichts | AI Task nicht konfiguriert | Einstellungen → Sprachassistenten → KI-Aufgabe → Standard setzen |
+| UI-Änderungen kommen nach Update nicht an | Panel-JS aus Browser-Cache | Hard-Reload (Cmd+Shift+R / Strg+F5). Cache-Buster zieht beim nächsten manifest.json-Bump automatisch. |
 | `customElements.define` Fehler im Browser | Hot-Reload | Hard-Reload (Cmd+Shift+R / Strg+F5) |
 | Pflanze taucht nach Speichern nicht auf | Sensor-Plattform nicht geladen | HA neu starten |
+| Test-Benachrichtigung schlägt fehl | Notify-Service-Name falsch oder leer | Notify-Service genau wie in HA-Diensten heißt (ohne `notify.`-Prefix raten – komplett angeben) |
+| Tastatur klappt auf Handy zu beim Tippen | (Behoben in 0.2.3) | HACS-Update + HA-Neustart |
 
 ### Debug-Logs aktivieren
 
