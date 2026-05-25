@@ -448,8 +448,20 @@ class PlantCarePanel extends HTMLElement {
 
   /* -------------------------------- Render ------------------------------- */
 
+  _hasFocusedInput() {
+    const a = this.shadowRoot && this.shadowRoot.activeElement;
+    if (!a || !a.tagName) return false;
+    const tag = a.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
   _render(force = false) {
     if (!this._hass) return;
+    // Während ein Formularfeld den Fokus hat, würde innerHTML=...
+    // den Input neu rendern und auf Mobile die Tastatur ausblenden.
+    // Externe State-Updates (hass-Setter) warten dann auf Blur oder
+    // einen erzwungenen Render (force=true).
+    if (!force && this._hasFocusedInput()) return;
     const plants = this._plants();
     const sig = [
       this._view,
