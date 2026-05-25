@@ -86,6 +86,12 @@ add_plant:
       selector:
         text:
           multiline: true
+    plant_description:
+      name: Pflanzen-Beschreibung
+      description: Kurzer Wiki-Text zur Pflanze, normalerweise von der KI gefüllt.
+      selector:
+        text:
+          multiline: true
 
 update_plant:
   name: Pflanze aktualisieren
@@ -148,6 +154,10 @@ update_plant:
         text:
           multiline: true
     suitability_warning:
+      selector:
+        text:
+          multiline: true
+    plant_description:
       selector:
         text:
           multiline: true

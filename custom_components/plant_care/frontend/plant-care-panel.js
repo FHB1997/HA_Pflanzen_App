@@ -203,6 +203,7 @@ class PlantCarePanel extends HTMLElement {
       water_days: { selector: { number: { min: 1, max: 90 } } },
       fertilize_days: { selector: { number: { min: 1, max: 180 } } },
       tips: { selector: { text: { multiline: true } } },
+      plant_description: { selector: { text: { multiline: true } } },
     };
   }
 
@@ -252,6 +253,7 @@ class PlantCarePanel extends HTMLElement {
             `- Allgemeine Pflegetipps\n` +
             `- Standort-spezifische Tipps (was ist beim genannten Raum + Licht zu beachten?)\n` +
             `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung. Sonst leeres Feld.\n` +
+            `- Eine kurze Wiki-artige Beschreibung der Pflanze (Herkunft, Familie, charakteristische Merkmale, 2-4 Sätze) im Feld plant_description.\n` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           structure: this._suggestStructureWithLocation(),
         },
@@ -289,6 +291,7 @@ class PlantCarePanel extends HTMLElement {
             `\n\nGib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, ` +
             `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level, ` +
             `Pflegetipps generell, Standort-spezifische Tipps und (falls Standort ungeeignet) eine kurze Begründung. ` +
+            `Zusätzlich eine kurze Wiki-artige Beschreibung der Pflanze (Herkunft, Familie, charakteristische Merkmale, 2-4 Sätze) im Feld plant_description. ` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           attachments: [
             {
@@ -557,23 +560,38 @@ class PlantCarePanel extends HTMLElement {
       return this._renderEmpty();
     }
     const rooms = Array.from(
-      new Set(plants.map((p) => (p.location || "").trim()).filter(Boolean)),
+      new Set(plants.map((p) => (p.room_type || "").trim()).filter(Boolean)),
     ).sort();
+    const hasUnassigned = plants.some((p) => !(p.room_type || "").trim());
     const filter = this._roomFilter;
     const filtered =
       filter === ROOM_ALL
         ? plants
-        : plants.filter((p) => (p.location || "").trim() === filter);
+        : filter === ""
+          ? plants.filter((p) => !(p.room_type || "").trim())
+          : plants.filter((p) => (p.room_type || "").trim() === filter);
+
+    const roomLabel = (r) => ROOM_LABELS[r] || r;
+    const roomCount = (r) =>
+      plants.filter((p) => (p.room_type || "").trim() === r).length;
+    const unassignedCount = plants.filter(
+      (p) => !(p.room_type || "").trim(),
+    ).length;
 
     return `
-      ${rooms.length > 0 ? `
+      ${(rooms.length > 0 || hasUnassigned) ? `
         <nav class="rooms">
           <button class="room ${filter === ROOM_ALL ? "active" : ""}" data-action="filter-room" data-room="${ROOM_ALL}">Alle (${plants.length})</button>
           ${rooms.map((r) => `
             <button class="room ${filter === r ? "active" : ""}" data-action="filter-room" data-room="${this._escapeAttr(r)}">
-              ${this._escape(r)}
+              ${this._escape(roomLabel(r))} (${roomCount(r)})
             </button>
           `).join("")}
+          ${hasUnassigned ? `
+            <button class="room ${filter === "" ? "active" : ""}" data-action="filter-room" data-room="">
+              Ohne Raum (${unassignedCount})
+            </button>
+          ` : ""}
         </nav>
       ` : ""}
       <div class="grid">
@@ -611,7 +629,10 @@ class PlantCarePanel extends HTMLElement {
     const plants = this._plants();
     const filter = this._roomFilter;
     if (filter === ROOM_ALL) return plants;
-    return plants.filter((p) => (p.location || "").trim() === filter);
+    if (filter === "") {
+      return plants.filter((p) => !(p.room_type || "").trim());
+    }
+    return plants.filter((p) => (p.room_type || "").trim() === filter);
   }
 
   _renderBulkActionBar() {
@@ -914,6 +935,10 @@ class PlantCarePanel extends HTMLElement {
             <span>Pflegetipps</span>
             <textarea name="tips" rows="3" placeholder="Freitext, von KI gefüllt oder selbst notiert">${this._escape(draft.tips || "")}</textarea>
           </label>
+          <label class="field">
+            <span>Beschreibung (Wiki)</span>
+            <textarea name="plant_description" rows="3" placeholder="Kurzer Wiki-Text, von KI gefüllt oder selbst notiert">${this._escape(draft.plant_description || "")}</textarea>
+          </label>
         </section>
 
         <div class="actions">
@@ -1008,6 +1033,7 @@ class PlantCarePanel extends HTMLElement {
           <div class="detail-meta">
             <h2>${this._escape(p.name)}</h2>
             ${p.species ? `<p class="muted">${this._escape(p.species)}</p>` : ""}
+            ${p.room_type ? `<p class="muted">🏠 ${this._escape(ROOM_LABELS[p.room_type] || p.room_type)}</p>` : ""}
             ${p.location ? `<p class="muted">📍 ${this._escape(p.location)}</p>` : ""}
             <p class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</p>
             <div class="row">
@@ -1015,6 +1041,10 @@ class PlantCarePanel extends HTMLElement {
             </div>
           </div>
         </header>
+
+        ${this._renderWikiSection(p)}
+
+        ${this._renderCareLocationSection(p)}
 
         <section class="detail-grid">
           <div class="action-card">
@@ -1043,41 +1073,49 @@ class PlantCarePanel extends HTMLElement {
           ` : ""}
         </section>
 
-        ${this._renderLocationSection(p)}
-
         ${this._renderTreatments(p)}
 
         ${this._renderPhotoHistory(p)}
-
-        ${p.tips ? `
-          <section class="tips">
-            <h3>Pflegetipps</h3>
-            <p>${this._escape(p.tips)}</p>
-          </section>
-        ` : ""}
 
         ${this._renderHistorySection(p)}
       </article>
     `;
   }
 
-  _renderLocationSection(p) {
+  _renderWikiSection(p) {
+    if (!p.plant_description) return "";
+    return `
+      <section class="wiki-section">
+        <h3>🌿 Über diese Pflanze</h3>
+        <p>${this._escape(p.plant_description)}</p>
+      </section>
+    `;
+  }
+
+  _renderCareLocationSection(p) {
     const room = p.room_type ? (ROOM_LABELS[p.room_type] || p.room_type) : "";
     const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
     const position = p.location || "";
-    if (!room && !light && !position && !p.location_tips) return "";
+    const hasFacts = !!(room || light || position);
+    if (!p.tips && !p.location_tips && !hasFacts) return "";
     const facts = [
       room ? `Raum: ${room}` : "",
       light ? `Licht: ${light}` : "",
       position ? `Position: ${position}` : "",
     ].filter(Boolean).join(" · ");
     return `
-      <section class="location-section">
-        <h3>📍 Standort</h3>
-        ${facts ? `<p class="muted small">${this._escape(facts)}</p>` : ""}
+      <section class="care-location-section">
+        <h3>💡 Pflege & Standort</h3>
+        ${facts ? `<p class="muted small care-location-facts">${this._escape(facts)}</p>` : ""}
+        ${p.tips ? `
+          <div class="info-banner">
+            <strong>🌱 Pflegetipps</strong>
+            <p>${this._escape(p.tips)}</p>
+          </div>
+        ` : ""}
         ${p.location_tips ? `
           <div class="info-banner">
-            <strong>💡 Standort-Tipps</strong>
+            <strong>📍 Standort-Tipps</strong>
             <p>${this._escape(p.location_tips)}</p>
           </div>
         ` : ""}
@@ -1600,6 +1638,7 @@ class PlantCarePanel extends HTMLElement {
             room_type: p.room_type || "",
             location_tips: p.location_tips || "",
             suitability_warning: p.suitability_warning || "",
+            plant_description: p.plant_description || "",
           };
           this._setState({ _view: "edit", _selectedId: id });
         }
@@ -1738,6 +1777,9 @@ class PlantCarePanel extends HTMLElement {
     }
     if (this._draft && "suitability_warning" in this._draft) {
       data.suitability_warning = this._draft.suitability_warning || "";
+    }
+    if (this._draft && "plant_description" in this._draft) {
+      data.plant_description = this._draft.plant_description || "";
     }
 
     // Photo aus Draft übernehmen. Im Edit-Mode bedeutet draft.photo === ""
@@ -2087,10 +2129,27 @@ class PlantCarePanel extends HTMLElement {
       }
       .warning-banner strong { display: block; margin-bottom: 4px; color: #b45309; }
       .warning-banner p { margin: 0; white-space: pre-wrap; }
-      .location-section {
+      .wiki-section {
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(126, 174, 110, 0.06);
+        border: 1px solid rgba(126, 174, 110, 0.25);
+      }
+      .wiki-section h3 { margin: 0 0 6px; font-size: 1rem; }
+      .wiki-section p {
+        margin: 0;
+        white-space: pre-wrap;
+        line-height: 1.45;
+        font-size: 0.95rem;
+      }
+
+      .care-location-section {
         margin-bottom: 20px;
       }
-      .location-section h3 { margin: 0 0 6px; font-size: 1rem; }
+      .care-location-section h3 { margin: 0 0 8px; font-size: 1rem; }
+      .care-location-facts { margin: 0 0 10px; }
+      .care-location-section .info-banner + .info-banner { margin-top: 8px; }
       .detail-warning {
         position: relative;
         margin-bottom: 16px;
@@ -2555,19 +2614,6 @@ class PlantCarePanel extends HTMLElement {
         color: var(--primary-text-color, #fff);
         mix-blend-mode: difference;
       }
-
-      .tips {
-        /* Semi-transparente Tönung statt --sage-bg, damit der Background
-           sich an helle UND dunkle HA-Themes anpasst (sonst weiße Schrift
-           auf fast-weißem Sage-Bg). */
-        background: rgba(126, 174, 110, 0.12);
-        border-left: 3px solid var(--sage);
-        border-radius: 10px;
-        padding: 14px 14px 14px 16px;
-        margin-bottom: 20px;
-      }
-      .tips h3 { margin: 0 0 8px; font-size: 1rem; }
-      .tips p { margin: 0; white-space: pre-wrap; }
 
       .history h3 { margin: 0 0 12px; font-size: 1rem; }
       .chart-row {

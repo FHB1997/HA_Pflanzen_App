@@ -101,6 +101,7 @@ class PlantCareCoordinator:
             plant.setdefault("room_type", "")
             plant.setdefault("location_tips", "")
             plant.setdefault("suitability_warning", "")
+            plant.setdefault("plant_description", "")
             migrate_legacy_photo(plant)
             plant.setdefault("treatments", [])
         self._plants = plants
@@ -198,6 +199,7 @@ class PlantCareCoordinator:
             "room_type": cleaned.get("room_type", ""),
             "location_tips": cleaned.get("location_tips", ""),
             "suitability_warning": cleaned.get("suitability_warning", ""),
+            "plant_description": cleaned.get("plant_description", ""),
             "last_watered": cleaned.get("last_watered"),
             "last_fertilized": cleaned.get("last_fertilized"),
             "water_history": [],

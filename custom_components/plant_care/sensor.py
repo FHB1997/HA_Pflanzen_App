@@ -155,6 +155,7 @@ class PlantSensor(SensorEntity):
             "room_type": plant.get("room_type", ""),
             "location_tips": plant.get("location_tips", ""),
             "suitability_warning": plant.get("suitability_warning", ""),
+            "plant_description": plant.get("plant_description", ""),
             "treatments": plant.get("treatments", []),
             "open_treatments_count": len(
                 filter_open_treatments(plant.get("treatments") or [])

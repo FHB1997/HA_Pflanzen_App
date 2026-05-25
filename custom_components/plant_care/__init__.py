@@ -76,6 +76,7 @@ ADD_PLANT_SCHEMA = vol.Schema(
         vol.Optional("room_type", default=""): cv.string,
         vol.Optional("location_tips", default=""): cv.string,
         vol.Optional("suitability_warning", default=""): cv.string,
+        vol.Optional("plant_description", default=""): cv.string,
     }
 )
 
@@ -95,6 +96,7 @@ UPDATE_PLANT_SCHEMA = vol.Schema(
         vol.Optional("room_type"): cv.string,
         vol.Optional("location_tips"): cv.string,
         vol.Optional("suitability_warning"): cv.string,
+        vol.Optional("plant_description"): cv.string,
     }
 )
 
