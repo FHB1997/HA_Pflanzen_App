@@ -23,6 +23,7 @@ from homeassistant.core import (
 )
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.loader import async_get_integration
 
 from ._utils import parse_action_id, parse_treatment_action_id
 from .const import (
@@ -264,7 +265,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data[DOMAIN]["unsub_action_listener"] = unsub_action_listener
 
-    # Panel registrieren
+    # Panel registrieren. ?v=<version> bricht den Browser-Cache bei jedem
+    # Release-Bump in manifest.json, ohne dass User hart neu laden müssen.
+    integration = await async_get_integration(hass, DOMAIN)
+    module_url = f"{PANEL_MODULE_URL}?v={integration.version}"
+
     try:
         frontend.async_register_built_in_panel(
             hass,
@@ -275,7 +280,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             config={
                 "_panel_custom": {
                     "name": "plant-care-panel",
-                    "module_url": PANEL_MODULE_URL,
+                    "module_url": module_url,
                     "embed_iframe": False,
                     "trust_external": False,
                 },
