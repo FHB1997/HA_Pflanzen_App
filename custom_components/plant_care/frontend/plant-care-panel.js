@@ -990,11 +990,15 @@ class PlantCarePanel extends HTMLElement {
           </div>
           <div class="detail-meta">
             <h2>${this._escape(p.name)}</h2>
-            ${p.species ? `<p class="muted">${this._escape(p.species)}</p>` : ""}
-            ${p.room_type ? `<p class="muted">🏠 ${this._escape(ROOM_LABELS[p.room_type] || p.room_type)}</p>` : ""}
-            ${p.location ? `<p class="muted">📍 ${this._escape(p.location)}</p>` : ""}
-            <p class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</p>
-            <div class="row">
+            ${p.species ? `<p class="species muted">${this._escape(p.species)}</p>` : ""}
+            ${(p.room_type || p.location) ? `
+              <p class="facts muted">
+                ${p.room_type ? `<span>🏠 ${this._escape(ROOM_LABELS[p.room_type] || p.room_type)}</span>` : ""}
+                ${p.location ? `<span>📍 ${this._escape(p.location)}</span>` : ""}
+              </p>
+            ` : ""}
+            <div class="meta-row">
+              <span class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</span>
               <button class="btn ghost small" data-action="edit" data-id="${this._escapeAttr(p.plant_id)}">Bearbeiten</button>
             </div>
           </div>
@@ -2462,8 +2466,22 @@ class PlantCarePanel extends HTMLElement {
       }
       .detail-photo img { width: 100%; height: 100%; object-fit: cover; }
       .detail-meta { flex: 1 1 240px; min-width: 0; }
-      .detail-meta h2 { margin: 0 0 4px; }
-      .detail-meta .row { margin-top: 12px; }
+      .detail-meta h2 { margin: 0 0 2px; line-height: 1.2; }
+      .detail-meta p { margin: 2px 0; line-height: 1.3; }
+      .detail-meta .species { font-style: italic; }
+      .detail-meta .facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 14px;
+      }
+      .detail-meta .meta-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .detail-meta .meta-row .status { margin: 0; }
 
       .quick-actions {
         display: flex;
