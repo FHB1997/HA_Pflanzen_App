@@ -1088,12 +1088,11 @@ class PlantCarePanel extends HTMLElement {
     const treatments = Array.isArray(p.treatments) ? p.treatments : [];
     const open = treatments.filter((t) => t.status === "open");
     const closed = treatments.filter((t) => t.status !== "open");
-    const aiAvailable = !!this._findAiTaskEntity();
     return `
       <section class="treatments">
         <h3>🔍 Behandlungen</h3>
         <div class="treatment-actions">
-          <button class="btn ${aiAvailable ? "" : "disabled"}" data-action="open-diagnose" data-id="${this._escapeAttr(p.plant_id)}" ${aiAvailable ? "" : "disabled"} title="${aiAvailable ? "" : "AI Task nicht eingerichtet"}">
+          <button class="btn" data-action="open-diagnose" data-id="${this._escapeAttr(p.plant_id)}">
             + Was ist los?
           </button>
         </div>
@@ -1140,9 +1139,10 @@ class PlantCarePanel extends HTMLElement {
 
   _renderDiagnoseModal() {
     if (!this._diagnoseModal) return "";
-    const { plantId, busy, result, error } = this._diagnoseModal;
+    const { plantId, busy, result, error, mode, manualDraft } = this._diagnoseModal;
     const plant = this._plantById(plantId);
     if (!plant) return "";
+    const aiAvailable = !!this._findAiTaskEntity();
     return `
       <div class="lightbox" data-action="close-diagnose">
         <div class="lightbox-content" data-stop style="max-width:560px">
@@ -1150,22 +1150,73 @@ class PlantCarePanel extends HTMLElement {
             <h3>Diagnose: ${this._escape(plant.name)}</h3>
           </header>
           <div class="diagnose-body">
-            ${result ? this._renderDiagnoseResult(plant, result) :
-              busy ? `<p>⏳ Foto wird analysiert…</p>` :
-              error ? `<p class="error">${this._escape(error)}</p>` :
-              `<p class="muted">Bitte ein Foto auswählen.</p>
-               <button class="btn primary" data-action="pick-diagnose-photo" data-id="${this._escapeAttr(plantId)}">📷 Foto auswählen</button>
-               <input type="file" accept="image/*" id="diagnose-photo-input" style="display:none">`
-            }
+            ${this._renderDiagnoseBody(plantId, { busy, result, error, mode, manualDraft, aiAvailable })}
           </div>
           <footer class="lightbox-footer">
             ${result && result.shouldSave ? `
               <button class="btn primary" data-action="save-diagnose" data-id="${this._escapeAttr(plantId)}">✓ Speichern</button>
             ` : ""}
+            ${mode === "manual" && !busy ? `
+              <button class="btn primary" data-action="save-manual-diagnose" data-id="${this._escapeAttr(plantId)}">✓ Speichern</button>
+            ` : ""}
             <button class="btn ghost" data-action="close-diagnose-btn">Schließen</button>
           </footer>
         </div>
       </div>
+    `;
+  }
+
+  _renderDiagnoseBody(plantId, { busy, result, error, mode, manualDraft, aiAvailable }) {
+    if (result) return this._renderDiagnoseResult(this._plantById(plantId), result);
+    if (busy) return `<p>⏳ Foto wird analysiert…</p>`;
+    if (error) return `<p class="error">${this._escape(error)}</p>`;
+    if (mode === "manual") return this._renderManualDiagnoseForm(plantId, manualDraft || {});
+    // Initial: Mode-Auswahl
+    return `
+      <p class="muted">Wähle eine Methode:</p>
+      <div class="diagnose-mode-choice">
+        ${aiAvailable ? `
+          <button class="btn primary" data-action="pick-diagnose-photo" data-id="${this._escapeAttr(plantId)}">
+            📷 Foto-Diagnose
+            <small>KI analysiert ein Bild</small>
+          </button>
+          <input type="file" accept="image/*" id="diagnose-photo-input" style="display:none">
+        ` : ""}
+        <button class="btn ${aiAvailable ? "ghost" : "primary"}" data-action="start-manual-diagnose" data-id="${this._escapeAttr(plantId)}">
+          ✏️ Selbst beschreiben
+          <small>Manuell ohne KI</small>
+        </button>
+      </div>
+      ${!aiAvailable ? `<p class="muted small">AI Task ist nicht eingerichtet – Foto-Diagnose nicht verfügbar.</p>` : ""}
+    `;
+  }
+
+  _renderManualDiagnoseForm(plantId, draft) {
+    return `
+      <form class="manual-diagnose" data-stop>
+        <label class="field">
+          <span>Was ist los? *</span>
+          <textarea name="diagnosis" rows="2" placeholder="z.B. Spinnmilben an den Blättern, gelbe Flecken" required>${this._escape(draft.diagnosis || "")}</textarea>
+        </label>
+        <label class="field">
+          <span>Geplante Schritte (eine pro Zeile)</span>
+          <textarea name="treatment_steps" rows="3" placeholder="Blätter mit Seifenlösung abwischen&#10;Luftfeuchtigkeit erhöhen">${this._escape(draft.treatment_steps_text || "")}</textarea>
+        </label>
+        <div class="form-grid form-grid-2">
+          <label class="field">
+            <span>Wiedervorlage (Tage)</span>
+            <input type="number" name="follow_up_days" min="1" max="30" value="${this._escapeAttr(draft.follow_up_days || 7)}">
+          </label>
+          <label class="field">
+            <span>Schweregrad</span>
+            <select name="severity">
+              <option value="low" ${draft.severity === "low" ? "selected" : ""}>Niedrig</option>
+              <option value="medium" ${(draft.severity || "medium") === "medium" ? "selected" : ""}>Mittel</option>
+              <option value="high" ${draft.severity === "high" ? "selected" : ""}>Hoch</option>
+            </select>
+          </label>
+        </div>
+      </form>
     `;
   }
 
@@ -1242,6 +1293,41 @@ class PlantCarePanel extends HTMLElement {
       this._diagnoseModal = { plantId, busy: false, error: this._fmtErr(err) };
     } finally {
       this._render();
+    }
+  }
+
+  async _saveManualDiagnose(plantId) {
+    const form = this.shadowRoot.querySelector(".manual-diagnose");
+    if (!form) return;
+    const fd = new FormData(form);
+    const diagnosis = (fd.get("diagnosis") || "").toString().trim();
+    if (!diagnosis) {
+      this._showToast("error", "Bitte eine Beschreibung eingeben");
+      return;
+    }
+    const stepsText = (fd.get("treatment_steps") || "").toString();
+    const steps = stepsText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const followUp = parseInt(fd.get("follow_up_days") || "7", 10);
+    const severity = (fd.get("severity") || "medium").toString();
+    try {
+      await this._callServiceWithResponse("plant_care", "diagnose_plant", {
+        plant_id: plantId,
+        photo_path: "",
+        ai_response: {
+          diagnosis,
+          treatment_steps: steps,
+          follow_up_days: isNaN(followUp) ? 7 : followUp,
+          severity,
+        },
+      });
+      this._showToast("success", "Behandlung dokumentiert");
+      this._diagnoseModal = null;
+      this._setState({});
+    } catch (err) {
+      this._showToast("error", this._fmtErr(err));
     }
   }
 
@@ -1442,8 +1528,20 @@ class PlantCarePanel extends HTMLElement {
         break;
       }
       case "open-diagnose":
-        this._diagnoseModal = { plantId: id, busy: false };
+        this._diagnoseModal = { plantId: id, busy: false, mode: "choose" };
         this._setState({});
+        break;
+      case "start-manual-diagnose":
+        this._diagnoseModal = {
+          plantId: id,
+          busy: false,
+          mode: "manual",
+          manualDraft: { follow_up_days: 7, severity: "medium" },
+        };
+        this._setState({});
+        break;
+      case "save-manual-diagnose":
+        this._saveManualDiagnose(id);
         break;
       case "close-diagnose":
         // Click auf Backdrop schließt; Click im Content nicht.
@@ -2144,6 +2242,39 @@ class PlantCarePanel extends HTMLElement {
         overflow-y: auto;
       }
       .diagnose-body .error { color: var(--error-color, #c92a2a); }
+      .diagnose-mode-choice {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .diagnose-mode-choice .btn {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding: 14px 16px;
+        text-align: left;
+      }
+      .diagnose-mode-choice .btn small {
+        font-weight: 400;
+        opacity: 0.8;
+        font-size: 0.85rem;
+      }
+      .manual-diagnose .field { margin-bottom: 10px; }
+      .manual-diagnose textarea,
+      .manual-diagnose input,
+      .manual-diagnose select {
+        width: 100%;
+        font-family: inherit;
+        font-size: 0.95rem;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid var(--divider-color, #d4d4d4);
+        background: var(--secondary-background-color, #fff);
+        color: inherit;
+        box-sizing: border-box;
+      }
 
       /* Agenda / Calendar */
       .agenda-loading {

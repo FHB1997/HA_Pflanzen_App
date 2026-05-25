@@ -140,7 +140,7 @@ REMOVE_PLANT_PHOTO_SCHEMA = vol.Schema(
 DIAGNOSE_PLANT_SCHEMA = vol.Schema(
     {
         vol.Required("plant_id"): cv.string,
-        vol.Required("photo_path"): cv.string,
+        vol.Optional("photo_path", default=""): cv.string,
         vol.Required("ai_response"): dict,
     }
 )
@@ -368,7 +368,7 @@ def _register_services(
     async def handle_diagnose_plant(call: ServiceCall) -> ServiceResponse:
         return await coord.async_diagnose_plant(
             plant_id=call.data["plant_id"],
-            photo_path=call.data["photo_path"],
+            photo_path=call.data.get("photo_path", ""),
             ai_response=call.data["ai_response"],
         )
 

@@ -329,10 +329,14 @@ class PlantCareCoordinator:
     async def async_diagnose_plant(
         self,
         plant_id: str,
-        photo_path: str,
-        ai_response: dict[str, Any],
+        photo_path: str = "",
+        ai_response: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Speichert das Ergebnis einer AI-Diagnose als Treatment-Eintrag."""
+        """Speichert ein Treatment – aus AI-Diagnose (mit Foto) oder als
+        manuelle Textbeschreibung (photo_path leer). ``ai_response`` enthält
+        in beiden Fällen mindestens ``diagnosis``."""
+        if ai_response is None:
+            ai_response = {}
         if plant_id not in self._plants:
             raise ValueError(f"Pflanze {plant_id} nicht gefunden")
         plant = self._plants[plant_id]
