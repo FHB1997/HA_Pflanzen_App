@@ -325,6 +325,11 @@ class PlantCarePanel extends HTMLElement {
     return {
       ...this._suggestStructure(),
       suitability_warning: { selector: { text: { multiline: true } } },
+      // Outdoor-Botanik-Flags. Indoor: idR nicht aussagekräftig, aber
+      // schaden tut's nicht – wenn der User später auf Outdoor umschaltet,
+      // sind sinnvolle Defaults schon gesetzt.
+      frost_sensitive: { selector: { boolean: {} } },
+      winter_rest: { selector: { boolean: {} } },
     };
   }
 
@@ -368,6 +373,8 @@ class PlantCarePanel extends HTMLElement {
             `- Spezies (botanisch), deutscher Trivialname\n` +
             `- Gieß- und Düngeintervalle in Tagen, passend zum genannten Licht-Level (bei wenig Licht seltener, bei Vollsonne öfter)\n` +
             `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung im Feld suitability_warning. Sonst leeres Feld.\n` +
+            `- frost_sensitive (boolean): true wenn die Pflanze bei Temperaturen unter 0°C dauerhaft Schaden nimmt (typisch für mediterrane, tropische und subtropische Arten); false für winterharte Arten (z.B. Hortensie, viele Stauden, heimische Gehölze).\n` +
+            `- winter_rest (boolean): true wenn die Pflanze von Dezember bis Februar eine echte Vegetationsruhe hält und in dieser Zeit kein Wasser/Dünger braucht (typisch für laubabwerfende und viele frostharte Outdoor-Arten); false für immergrüne/wintergrüne Arten oder Zimmerpflanzen.\n` +
             `- Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. ` +
             ((this._draft?.plant_kind === "outdoor")
               ? `Bei Outdoor zusätzlich erwähnen: Winterhärte, Frosttoleranz, ob die Pflanze drinnen überwintert werden muss, saisonale Pflege. `
@@ -410,6 +417,8 @@ class PlantCarePanel extends HTMLElement {
             `\n\nGib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, ` +
             `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level. ` +
             `Im Feld suitability_warning: falls Standort ungeeignet, eine kurze Begründung; sonst leer. ` +
+            `frost_sensitive (boolean): true wenn die Art unter 0°C Schaden nimmt (mediterrane/tropische/subtropische); false für winterharte Arten. ` +
+            `winter_rest (boolean): true wenn die Pflanze Dez-Feb echte Vegetationsruhe hält (laubabwerfend/frosthart-outdoor); false sonst. ` +
             `Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. ` +
             ((this._draft?.plant_kind === "outdoor")
               ? `Bei Outdoor zusätzlich: Winterhärte, Frosttoleranz, ob die Pflanze drinnen überwintert werden muss. `
@@ -2395,15 +2404,21 @@ class PlantCarePanel extends HTMLElement {
     delete data.room_type_select;
     delete data.room_type_other;
 
-    // Checkboxes: FormData lässt unchecked-Werte komplett weg → explizit
-    // false setzen, damit Edit-Mode den Wert zurücksetzen kann.
-    if (this._view === "add" || data.plant_kind === "outdoor") {
+    // frost_sensitive / winter_rest sind biologische Pflanzen-Eigenschaften
+    // (kein "wo steht sie gerade"-State). Outdoor zeigt sie als Checkbox →
+    // wir lesen aus FormData mit explizitem false für unchecked. Indoor
+    // blendet sie aus, also fallen wir auf den Draft zurück (von der KI
+    // gesetzt oder von einer früheren Outdoor-Speicherung übrig).
+    if (data.plant_kind === "outdoor") {
       data.frost_sensitive = formData.get("frost_sensitive") === "1";
       data.winter_rest = formData.get("winter_rest") === "1";
-    } else if (data.plant_kind === "indoor") {
-      // Beim Switch outdoor→indoor die Flags räumen.
-      data.frost_sensitive = false;
-      data.winter_rest = false;
+    } else {
+      if (this._draft && "frost_sensitive" in this._draft) {
+        data.frost_sensitive = !!this._draft.frost_sensitive;
+      }
+      if (this._draft && "winter_rest" in this._draft) {
+        data.winter_rest = !!this._draft.winter_rest;
+      }
     }
 
     // Q&A-AI-Resultate aus dem Draft übernehmen
