@@ -221,6 +221,13 @@ Foto-Erkennung) – die statische Liste war redundant.
 
 ## 6. Phase 3: Ideen für später
 
+- ✅ **Outdoor-Pflanzen mit Season + Weather Awareness** (Version 0.3.0) –
+  Indoor/Outdoor-Tabs, Saison-Multiplikatoren für Outdoor-Intervalle,
+  Wetter-Entity-Hook (Regen-Suppression), Frost-Warnung mit Banner und
+  Push. Per-Pflanze-Toggles: `frost_sensitive`, `winter_rest`. Hook
+  Points: `effective_*_days` in `_utils.py`, `is_winter_rest_active`,
+  `has_recent_rain`, `has_frost_in_forecast`; `evaluate_frost_warnings`
+  im Coordinator.
 - 🌡️ **Mehr Sensor-Typen:** Licht, Temperatur, Nährstoffe (Mi Flora hat alles) – aktuell nur Bodenfeuchte
 - 🤝 **Pflanzen-Tausch-Feature** – Empfehlungen wann Stecklinge möglich
 - 📅 **Urlaubsmodus** – pausiert Benachrichtigungen, sendet Liste an Pflanzensitter
@@ -418,4 +425,4 @@ Arbeit weiterhin gut im Context haltbar, für Quer-Lesungen lieber mit
 
 -----
 
-*Stand: Mai 2026 · Phase 1 + Phase 2 ausgeliefert (Version 0.2.8) · Sammelbecken Phase 3 in Abschnitt 6*
+*Stand: Mai 2026 · Phase 1 + Phase 2 + Outdoor-Awareness ausgeliefert (Version 0.3.0) · Sammelbecken Phase 3 in Abschnitt 6*

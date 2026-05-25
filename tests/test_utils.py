@@ -11,11 +11,16 @@ from _utils import (  # type: ignore[import-not-found]
     cap_photos,
     clean_data,
     compute_snooze_last_notified,
+    effective_fertilize_days,
+    effective_water_days,
     filter_open_treatments,
     generate_care_events,
+    has_frost_in_forecast,
     has_overdue_treatment,
+    has_recent_rain,
     is_in_quiet_hours,
     is_rate_limited,
+    is_winter_rest_active,
     migrate_legacy_photo,
     needs_time_based,
     parse_action_id,
@@ -516,3 +521,137 @@ def test_utcnow_iso_returns_parseable_utc_string():
     # Sollte recht aktuell sein.
     delta = abs((parsed - datetime.now(timezone.utc)).total_seconds())
     assert delta < 5
+
+
+# --------------- Outdoor / Season / Weather ---------------
+
+_SEASON_WATER_TEST = {
+    1: 3.0, 2: 3.0, 12: 3.0,
+    3: 1.2, 4: 1.0, 5: 1.0,
+    6: 0.7, 7: 0.7, 8: 0.7,
+    9: 1.0, 10: 1.3, 11: 2.0,
+}
+_SEASON_FERT_TEST = {
+    1: 0.0, 2: 0.0, 12: 0.0,
+    3: 1.5, 4: 1.0, 5: 1.0,
+    6: 1.0, 7: 1.0, 8: 1.0,
+    9: 1.2, 10: 2.0, 11: 0.0,
+}
+
+
+def test_effective_water_days_indoor_unchanged():
+    plant = {"plant_kind": "indoor", "water_days": 7}
+    july = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    jan = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    assert effective_water_days(plant, july, season_multipliers=_SEASON_WATER_TEST) == 7
+    assert effective_water_days(plant, jan, season_multipliers=_SEASON_WATER_TEST) == 7
+
+
+def test_effective_water_days_outdoor_summer_shorter():
+    plant = {"plant_kind": "outdoor", "water_days": 10}
+    july = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    # 10 * 0.7 = 7
+    assert effective_water_days(plant, july, season_multipliers=_SEASON_WATER_TEST) == 7
+
+
+def test_effective_water_days_outdoor_winter_longer():
+    plant = {"plant_kind": "outdoor", "water_days": 7}
+    jan = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    # 7 * 3.0 = 21
+    assert effective_water_days(plant, jan, season_multipliers=_SEASON_WATER_TEST) == 21
+
+
+def test_effective_water_days_zero_base_stays_zero():
+    plant = {"plant_kind": "outdoor", "water_days": 0}
+    july = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    assert effective_water_days(plant, july, season_multipliers=_SEASON_WATER_TEST) == 0
+
+
+def test_effective_fertilize_days_outdoor_winter_paused():
+    plant = {"plant_kind": "outdoor", "fertilize_days": 30}
+    jan = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    # Multiplier 0 → 0 = pausiert
+    assert effective_fertilize_days(plant, jan, season_multipliers=_SEASON_FERT_TEST) == 0
+
+
+def test_effective_fertilize_days_outdoor_spring_boost():
+    plant = {"plant_kind": "outdoor", "fertilize_days": 30}
+    march = datetime(2026, 3, 15, tzinfo=timezone.utc)
+    # 30 * 1.5 = 45
+    assert effective_fertilize_days(plant, march, season_multipliers=_SEASON_FERT_TEST) == 45
+
+
+def test_is_winter_rest_active_only_when_flag_and_month_match():
+    out_rest = {"plant_kind": "outdoor", "winter_rest": True}
+    out_norest = {"plant_kind": "outdoor", "winter_rest": False}
+    indoor = {"plant_kind": "indoor", "winter_rest": True}
+    jan = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    july = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    assert is_winter_rest_active(out_rest, jan) is True
+    assert is_winter_rest_active(out_rest, july) is False
+    assert is_winter_rest_active(out_norest, jan) is False
+    assert is_winter_rest_active(indoor, jan) is False
+
+
+def test_has_recent_rain_true_when_above_threshold():
+    class _State:
+        attributes = {"precipitation": 2.5}
+    assert has_recent_rain(_State(), 1.0) is True
+
+
+def test_has_recent_rain_false_when_below_threshold():
+    class _State:
+        attributes = {"precipitation": 0.2}
+    assert has_recent_rain(_State(), 1.0) is False
+
+
+def test_has_recent_rain_handles_missing_state():
+    assert has_recent_rain(None, 1.0) is False
+
+
+def test_has_recent_rain_handles_missing_attribute():
+    class _State:
+        attributes = {}
+    assert has_recent_rain(_State(), 1.0) is False
+
+
+def test_has_recent_rain_accepts_dict():
+    assert has_recent_rain({"precipitation": "3.4"}, 1.0) is True
+
+
+def test_has_frost_in_forecast_detects_templow_below():
+    now = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-11-02T06:00:00+00:00", "templow": -2.0},
+    ]
+    assert has_frost_in_forecast(forecast, now, horizon_hours=24, threshold_c=0.0) is True
+
+
+def test_has_frost_in_forecast_ignores_beyond_horizon():
+    now = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-11-05T06:00:00+00:00", "templow": -5.0},
+    ]
+    assert has_frost_in_forecast(forecast, now, horizon_hours=24, threshold_c=0.0) is False
+
+
+def test_has_frost_in_forecast_falls_back_to_temperature():
+    now = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-11-02T03:00:00+00:00", "temperature": -1.5},
+    ]
+    assert has_frost_in_forecast(forecast, now, horizon_hours=24, threshold_c=0.0) is True
+
+
+def test_has_frost_in_forecast_no_match_when_warm():
+    now = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-11-02T06:00:00+00:00", "templow": 5.0},
+    ]
+    assert has_frost_in_forecast(forecast, now, horizon_hours=24, threshold_c=0.0) is False
+
+
+def test_has_frost_in_forecast_handles_empty_list():
+    now = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    assert has_frost_in_forecast([], now, horizon_hours=24, threshold_c=0.0) is False
+    assert has_frost_in_forecast(None, now, horizon_hours=24, threshold_c=0.0) is False

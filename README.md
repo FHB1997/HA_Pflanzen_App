@@ -10,6 +10,8 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant. Plant Care besteht aus e
 - Konsolidierte „Über diese Pflanze"-Beschreibung (4-6 Sätze: Herkunft + Pflege + Standort-Hinweise als ein Text)
 - Behandlungs-Feature („Was ist los?") mit KI-Foto-Diagnose **oder** manueller Textbeschreibung
 - KI-Chat in der Detail-Ansicht: stell Fragen im Kontext der Pflanze, Multi-Turn via HA Conversation-Agent
+- Indoor- und Outdoor-Pflanzen getrennt: zwei Tabs in der Übersicht, eigene Räume (Balkon, Garten, Terrasse, …), saison-bewusste Reminder-Intervalle und Wetter-Awareness (kein Gießen wenn's geregnet hat)
+- Frost-Warnung (Banner + Push-Notification) für frost­empfindliche Outdoor-Pflanzen
 - Optionale Verknüpfung mit Bodenfeuchte-Sensoren (übersteuert das Zeit-Intervall)
 - Verlaufsdiagramme für Gieß- und Düngevorgänge
 - Foto-Verlauf pro Pflanze (max. 100, FIFO)
@@ -155,6 +157,26 @@ Provider wie für AI Task (Anthropic, OpenAI, Gemini, Ollama).
 
 „Verlauf löschen" startet eine neue Konversation. Der Verlauf ist
 nur im Browser gespeichert – beim Neuladen des Panels verfällt er.
+
+### Indoor vs. Outdoor
+
+Die Übersicht hat oben zwei Tabs: **🪴 Indoor** und **🌳 Outdoor**. Beim
+Anlegen einer Pflanze wird per Radio festgelegt, was es ist — die Raum-
+Liste passt sich an (Indoor: Wohnzimmer/Bad/…, Outdoor: Balkon/Garten/
+Terrasse/Vorgarten/Gewächshaus). Outdoor-Pflanzen bekommen zwei
+zusätzliche Toggles:
+
+- **❄️ Frostempfindlich** — löst Warnung + Push aus, wenn Frost in den
+  nächsten 24 h vorhergesagt ist
+- **😴 Winterruhe (Dez–Feb)** — pausiert Reminder komplett in den
+  Wintermonaten
+
+Die Saison-Logik passt für Outdoor-Pflanzen die Gieß- und Düngeintervalle
+automatisch an (Sommer öfter, Winter seltener; Düngen im Winter pausiert).
+Wenn in den Integration-Optionen eine **Wetter-Entity** hinterlegt ist,
+suppressed Plant Care die „Gießen"-Reminder solange für heute
+Niederschlag > 1 mm gemeldet ist. Indoor-Pflanzen sind davon nicht
+betroffen.
 
 ### Sensor-Verknüpfung
 

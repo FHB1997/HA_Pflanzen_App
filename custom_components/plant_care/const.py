@@ -97,7 +97,7 @@ SNOOZE_DEFAULT_HOURS: Final = 24
 
 # Standort/Licht (Sprint 6)
 LIGHT_LEVELS: Final = ("vollsonne", "hell", "halbschatten", "schatten")
-ROOM_TYPES: Final = (
+ROOM_TYPES_INDOOR: Final = (
     "wohnzimmer",
     "schlafzimmer",
     "kueche",
@@ -106,3 +106,41 @@ ROOM_TYPES: Final = (
     "flur",
     "kinderzimmer",
 )
+ROOM_TYPES_OUTDOOR: Final = (
+    "balkon",
+    "terrasse",
+    "garten",
+    "vorgarten",
+    "gewaechshaus",
+)
+# Union für Schema-Validierung (Reihenfolge egal).
+ROOM_TYPES: Final = ROOM_TYPES_INDOOR + ROOM_TYPES_OUTDOOR
+
+# Plant-Kind
+PLANT_KIND_INDOOR: Final = "indoor"
+PLANT_KIND_OUTDOOR: Final = "outdoor"
+PLANT_KINDS: Final = (PLANT_KIND_INDOOR, PLANT_KIND_OUTDOOR)
+
+# Saison-Multiplikatoren – nur für Outdoor-Pflanzen.
+# Index = Monat (1-12). Wert wird mit dem konfigurierten *_days multipliziert.
+# Winter länger, Sommer kürzer; Düngen pausiert in den Wintermonaten (0).
+SEASON_WATER_MULT: Final = {
+    1: 3.0, 2: 3.0, 12: 3.0,
+    3: 1.2, 4: 1.0, 5: 1.0,
+    6: 0.7, 7: 0.7, 8: 0.7,
+    9: 1.0, 10: 1.3, 11: 2.0,
+}
+SEASON_FERTILIZE_MULT: Final = {
+    1: 0.0, 2: 0.0, 12: 0.0,
+    3: 1.5, 4: 1.0, 5: 1.0,
+    6: 1.0, 7: 1.0, 8: 1.0,
+    9: 1.2, 10: 2.0, 11: 0.0,
+}
+WINTER_REST_MONTHS: Final = (12, 1, 2)
+
+# Wetter-Awareness
+CONF_WEATHER_ENTITY: Final = "weather_entity"
+RAIN_THRESHOLD_MM: Final = 1.0          # ab diesem Tagesniederschlag gilt's als "geregnet"
+FROST_THRESHOLD_C: Final = 0.0          # Tief unter diesem Wert → Frost-Alarm
+FROST_FORECAST_HOURS: Final = 24        # so weit in die Zukunft schauen
+FROST_NOTIFY_COOLDOWN_HOURS: Final = 18 # Rate-Limit pro Pflanze

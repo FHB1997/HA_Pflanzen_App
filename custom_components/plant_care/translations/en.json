@@ -22,6 +22,7 @@
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",
           "rate_limit_hours": "Minimum hours between reminders for the same plant",
+          "weather_entity": "Weather entity (optional, used for outdoor plants – rain awareness + frost alerts)",
           "send_test": "Send a test notification on save"
         }
       }

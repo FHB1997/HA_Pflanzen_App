@@ -22,6 +22,7 @@
           "quiet_hours_start": "Beginn Ruhezeit",
           "quiet_hours_end": "Ende Ruhezeit",
           "rate_limit_hours": "Mindestabstand zwischen Erinnerungen pro Pflanze (Stunden)",
+          "weather_entity": "Wetter-Entity (optional, für Outdoor-Pflanzen – Regen-Awareness + Frost-Warnung)",
           "send_test": "Test-Benachrichtigung beim Speichern senden"
         }
       }

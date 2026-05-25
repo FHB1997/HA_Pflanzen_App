@@ -19,8 +19,11 @@ from ._utils import (
     compute_snooze_last_notified,
     filter_open_treatments,
     generate_care_events,
+    has_frost_in_forecast,
+    has_recent_rain,
     is_in_quiet_hours,
     is_rate_limited,
+    is_winter_rest_active,
     migrate_legacy_photo,
     parse_iso,
     parse_notify_targets,
@@ -35,17 +38,23 @@ from .const import (
     CONF_QUIET_HOURS_START,
     CONF_RATE_LIMIT_HOURS,
     CONF_REMINDERS_ENABLED,
+    CONF_WEATHER_ENTITY,
     DEFAULT_FERTILIZE_DAYS,
     DEFAULT_NOTIFY_TITLE,
     DEFAULT_WATER_DAYS,
     DOMAIN,
+    FROST_FORECAST_HOURS,
+    FROST_NOTIFY_COOLDOWN_HOURS,
+    FROST_THRESHOLD_C,
     HISTORY_MAX_ENTRIES,
     MAX_PHOTOS_PER_PLANT,
     MIN_DIAGNOSE_INTERVAL_SECONDS,
     PHOTOS_URL_PATH,
+    RAIN_THRESHOLD_MM,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
+    WINTER_REST_MONTHS,
     SNOOZE_DEFAULT_HOURS,
     STATUS_NEEDS_ATTENTION,
     STATUS_NEEDS_BOTH,
@@ -102,6 +111,10 @@ class PlantCareCoordinator:
             plant.setdefault("room_type", "")
             plant.setdefault("suitability_warning", "")
             plant.setdefault("plant_description", "")
+            plant.setdefault("plant_kind", "indoor")
+            plant.setdefault("frost_sensitive", False)
+            plant.setdefault("winter_rest", False)
+            plant.setdefault("last_frost_notified", None)
             # Migrations: alles, was früher in location_tips oder tips lag,
             # wandert in plant_description (4-6-Satz "Über diese Pflanze").
             legacy_loc = (plant.pop("location_tips", "") or "").strip()
@@ -215,6 +228,12 @@ class PlantCareCoordinator:
             "room_type": cleaned.get("room_type", ""),
             "suitability_warning": cleaned.get("suitability_warning", ""),
             "plant_description": cleaned.get("plant_description", ""),
+            "plant_kind": (
+                cleaned.get("plant_kind") if cleaned.get("plant_kind") in ("indoor", "outdoor") else "indoor"
+            ),
+            "frost_sensitive": bool(cleaned.get("frost_sensitive", False)),
+            "winter_rest": bool(cleaned.get("winter_rest", False)),
+            "last_frost_notified": None,
             "last_watered": cleaned.get("last_watered"),
             "last_fertilized": cleaned.get("last_fertilized"),
             "water_history": [],
@@ -686,6 +705,87 @@ class PlantCareCoordinator:
         if sent:
             await self._async_save_now()
             _LOGGER.info("Plant Care: %d Erinnerung(en) versendet", sent)
+        return sent
+
+    async def evaluate_frost_warnings(
+        self, options: Mapping[str, Any]
+    ) -> int:
+        """Sendet Frost-Warnungen für Outdoor-Pflanzen mit ``frost_sensitive``.
+
+        Liest die Forecast-Liste der konfigurierten Weather-Entity. Wenn ein
+        Tief in den nächsten ``FROST_FORECAST_HOURS`` unter ``FROST_THRESHOLD_C``
+        liegt, geht eine Push-Notification raus. Pro Pflanze nur einmal pro
+        ``FROST_NOTIFY_COOLDOWN_HOURS``.
+
+        Returns: Anzahl gesendeter Frost-Warnungen.
+        """
+        if not options.get(CONF_REMINDERS_ENABLED, False):
+            return 0
+        weather_entity = (options.get(CONF_WEATHER_ENTITY) or "").strip()
+        if not weather_entity:
+            return 0
+        notify_service_full = (options.get(CONF_NOTIFY_SERVICE) or "").strip()
+        notify_targets = parse_notify_targets(notify_service_full)
+        if not notify_targets:
+            return 0
+
+        weather_state = self.hass.states.get(weather_entity)
+        if weather_state is None:
+            return 0
+        forecast = (weather_state.attributes or {}).get("forecast") or []
+        now_utc = datetime.now(timezone.utc)
+        if not has_frost_in_forecast(
+            forecast,
+            now_utc,
+            horizon_hours=FROST_FORECAST_HOURS,
+            threshold_c=FROST_THRESHOLD_C,
+        ):
+            return 0
+
+        title = options.get(CONF_NOTIFY_TITLE) or DEFAULT_NOTIFY_TITLE
+
+        sent = 0
+        for plant_id, plant in self._plants.items():
+            if (plant.get("plant_kind") or "indoor") != "outdoor":
+                continue
+            if not plant.get("frost_sensitive"):
+                continue
+            last_iso = plant.get("last_frost_notified")
+            if is_rate_limited(last_iso, FROST_NOTIFY_COOLDOWN_HOURS, now_utc):
+                continue
+
+            name = plant.get("name") or plant_id
+            message = f"❄️ Frost vorhergesagt – {name} bitte schützen oder reinholen."
+            payload: dict[str, Any] = {"title": title, "message": message}
+            mobile_data = {
+                "tag": f"plant_care_frost_{plant_id}",
+                "group": "plant_care",
+            }
+            any_success = False
+            for notify_domain, notify_service in notify_targets:
+                target_payload = dict(payload)
+                if notify_service.startswith("mobile_app_"):
+                    target_payload["data"] = mobile_data
+                try:
+                    await self.hass.services.async_call(
+                        notify_domain, notify_service, target_payload, blocking=False
+                    )
+                    any_success = True
+                except Exception as err:  # noqa: BLE001 – pro Target isolieren
+                    _LOGGER.warning(
+                        "Plant Care: Frost-Notify %s.%s fehlgeschlagen: %s",
+                        notify_domain,
+                        notify_service,
+                        err,
+                    )
+
+            if any_success:
+                plant["last_frost_notified"] = now_utc.isoformat()
+                sent += 1
+
+        if sent:
+            await self._async_save_now()
+            _LOGGER.info("Plant Care: %d Frost-Warnung(en) versendet", sent)
         return sent
 
     async def send_test_notification(

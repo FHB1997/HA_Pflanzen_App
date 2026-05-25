@@ -33,7 +33,15 @@ const ROOM_LABELS = {
   buero: "Büro",
   flur: "Flur",
   kinderzimmer: "Kinderzimmer",
+  balkon: "Balkon",
+  terrasse: "Terrasse",
+  garten: "Garten",
+  vorgarten: "Vorgarten",
+  gewaechshaus: "Gewächshaus",
 };
+
+const ROOM_TYPES_INDOOR = ["wohnzimmer", "schlafzimmer", "kueche", "bad", "buero", "flur", "kinderzimmer"];
+const ROOM_TYPES_OUTDOOR = ["balkon", "terrasse", "garten", "vorgarten", "gewaechshaus"];
 
 const LIGHT_LABELS = {
   vollsonne: "Vollsonne (Südfenster)",
@@ -64,6 +72,7 @@ class PlantCarePanel extends HTMLElement {
     this._chatStates = new Map();
     this._chatScrollPending = false;
     this._listMode = this._loadListMode();
+    this._kindTab = this._loadKindTab();
     this._lastStatesSignature = "";
     this._onClick = this._onClick.bind(this);
     this._onSubmit = this._onSubmit.bind(this);
@@ -115,6 +124,23 @@ class PlantCarePanel extends HTMLElement {
       localStorage.setItem("plant_care_list_mode", mode);
     } catch {
       // localStorage kann gesperrt sein (Inkognito, etc.) – egal.
+    }
+  }
+
+  _loadKindTab() {
+    try {
+      const k = localStorage.getItem("plant_care_kind_tab");
+      return k === "outdoor" ? "outdoor" : "indoor";
+    } catch {
+      return "indoor";
+    }
+  }
+
+  _saveKindTab(kind) {
+    try {
+      localStorage.setItem("plant_care_kind_tab", kind);
+    } catch {
+      // egal.
     }
   }
 
@@ -280,7 +306,8 @@ class PlantCarePanel extends HTMLElement {
     const light = draft.light_level
       ? (LIGHT_LABELS[draft.light_level] || draft.light_level)
       : "nicht angegeben";
-    return `\n- Standort: ${room}\n- Lichtintensität: ${light}`;
+    const kind = draft.plant_kind === "outdoor" ? "Outdoor (Garten/Balkon/Terrasse)" : "Indoor (Zimmerpflanze)";
+    return `\n- Pflanzen-Typ: ${kind}\n- Standort: ${room}\n- Lichtintensität: ${light}`;
   }
 
   async _aiSuggestFromName(name) {
@@ -303,13 +330,17 @@ class PlantCarePanel extends HTMLElement {
           entity_id: aiEntity,
           task_name: "plant_care_suggest",
           instructions:
-            `Du bist Botaniker. Für die Zimmerpflanze "${name}":` +
+            `Du bist Botaniker. Für die Pflanze "${name}":` +
             this._qaContextString(this._draft || {}) +
             `\n\nGib zurück:\n` +
             `- Spezies (botanisch), deutscher Trivialname\n` +
             `- Gieß- und Düngeintervalle in Tagen, passend zum genannten Licht-Level (bei wenig Licht seltener, bei Vollsonne öfter)\n` +
             `- Wenn der genannte Standort für diese Art ungeeignet ist: kurze Begründung im Feld suitability_warning. Sonst leeres Feld.\n` +
-            `- Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. Ein zusammenhängender Text, keine Aufzählung.\n` +
+            `- Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. ` +
+            ((this._draft?.plant_kind === "outdoor")
+              ? `Bei Outdoor zusätzlich erwähnen: Winterhärte, Frosttoleranz, ob die Pflanze drinnen überwintert werden muss, saisonale Pflege. `
+              : "") +
+            `Ein zusammenhängender Text, keine Aufzählung.\n` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           structure: this._suggestStructureWithLocation(),
         },
@@ -342,12 +373,16 @@ class PlantCarePanel extends HTMLElement {
           entity_id: aiEntity,
           task_name: "plant_care_identify_from_photo",
           instructions:
-            `Welche Zimmerpflanze ist auf dem angehängten Bild zu sehen?` +
+            `Welche Pflanze ist auf dem angehängten Bild zu sehen?` +
             this._qaContextString(this._draft || {}) +
             `\n\nGib Spezies (botanisch), deutschen Trivialnamen, eine Konfidenz zwischen 0 und 1, ` +
             `empfohlene Gieß- und Düngeintervalle in Tagen passend zum genannten Licht-Level. ` +
             `Im Feld suitability_warning: falls Standort ungeeignet, eine kurze Begründung; sonst leer. ` +
-            `Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. Ein zusammenhängender Text, keine Aufzählung. ` +
+            `Im Feld plant_description (insgesamt 4-6 Sätze): kombiniere Herkunft/Familie/charakteristische Merkmale UND die wichtigsten Pflegehinweise UND was beim genannten Raum + Licht zu beachten ist. ` +
+            ((this._draft?.plant_kind === "outdoor")
+              ? `Bei Outdoor zusätzlich: Winterhärte, Frosttoleranz, ob die Pflanze drinnen überwintert werden muss. `
+              : "") +
+            `Ein zusammenhängender Text, keine Aufzählung. ` +
             `Antworte ausschließlich im vorgegebenen JSON-Schema.`,
           attachments: [
             {
@@ -565,6 +600,8 @@ class PlantCarePanel extends HTMLElement {
       this._view,
       this._selectedId || "",
       this._roomFilter,
+      this._kindTab,
+      this._listMode,
       this._aiBusy ? 1 : 0,
       this._toast ? this._toast.msg : "",
       this._signature(plants),
@@ -688,10 +725,17 @@ class PlantCarePanel extends HTMLElement {
   /* ------------------------------ List View ------------------------------ */
 
   _renderList() {
-    const plants = this._plants();
-    if (plants.length === 0) {
+    const allPlants = this._plants();
+    if (allPlants.length === 0) {
       return this._renderEmpty();
     }
+    // Top-Level: nach Plant-Kind splitten
+    const kind = this._kindTab; // "indoor" | "outdoor"
+    const indoorCount = allPlants.filter((p) => (p.plant_kind || "indoor") === "indoor").length;
+    const outdoorCount = allPlants.filter((p) => (p.plant_kind || "indoor") === "outdoor").length;
+    const plants = allPlants.filter((p) => (p.plant_kind || "indoor") === kind);
+
+    // Räume aus dem aktiven Tab ableiten
     const rooms = Array.from(
       new Set(plants.map((p) => (p.room_type || "").trim()).filter(Boolean)),
     ).sort();
@@ -712,24 +756,39 @@ class PlantCarePanel extends HTMLElement {
     ).length;
 
     return `
-      ${(rooms.length > 0 || hasUnassigned) ? `
-        <nav class="rooms">
-          <button class="room ${filter === ROOM_ALL ? "active" : ""}" data-action="filter-room" data-room="${ROOM_ALL}">Alle (${plants.length})</button>
-          ${rooms.map((r) => `
-            <button class="room ${filter === r ? "active" : ""}" data-action="filter-room" data-room="${this._escapeAttr(r)}">
-              ${this._escape(roomLabel(r))} (${roomCount(r)})
-            </button>
-          `).join("")}
-          ${hasUnassigned ? `
-            <button class="room ${filter === "" ? "active" : ""}" data-action="filter-room" data-room="">
-              Ohne Raum (${unassignedCount})
-            </button>
-          ` : ""}
-        </nav>
-      ` : ""}
-      <div class="${this._listMode === "compact" ? "list-compact" : "grid"}">
-        ${filtered.map((p) => this._listMode === "compact" ? this._renderRowCard(p) : this._renderCard(p)).join("")}
-      </div>
+      <nav class="kind-tabs">
+        <button class="kind-tab ${kind === "indoor" ? "active" : ""}" data-action="set-kind-tab" data-kind="indoor">
+          🪴 Indoor <span class="kind-tab-count">${indoorCount}</span>
+        </button>
+        <button class="kind-tab ${kind === "outdoor" ? "active" : ""}" data-action="set-kind-tab" data-kind="outdoor">
+          🌳 Outdoor <span class="kind-tab-count">${outdoorCount}</span>
+        </button>
+      </nav>
+      ${plants.length === 0 ? `
+        <div class="empty empty-tab">
+          <p class="muted">Noch keine ${kind === "indoor" ? "Indoor-" : "Outdoor-"}Pflanzen.</p>
+          <button class="btn primary" data-action="new">+ Neue Pflanze</button>
+        </div>
+      ` : `
+        ${(rooms.length > 0 || hasUnassigned) ? `
+          <nav class="rooms">
+            <button class="room ${filter === ROOM_ALL ? "active" : ""}" data-action="filter-room" data-room="${ROOM_ALL}">Alle (${plants.length})</button>
+            ${rooms.map((r) => `
+              <button class="room ${filter === r ? "active" : ""}" data-action="filter-room" data-room="${this._escapeAttr(r)}">
+                ${this._escape(roomLabel(r))} (${roomCount(r)})
+              </button>
+            `).join("")}
+            ${hasUnassigned ? `
+              <button class="room ${filter === "" ? "active" : ""}" data-action="filter-room" data-room="">
+                Ohne Raum (${unassignedCount})
+              </button>
+            ` : ""}
+          </nav>
+        ` : ""}
+        <div class="${this._listMode === "compact" ? "list-compact" : "grid"}">
+          ${filtered.map((p) => this._listMode === "compact" ? this._renderRowCard(p) : this._renderCard(p)).join("")}
+        </div>
+      `}
     `;
   }
 
@@ -801,7 +860,10 @@ class PlantCarePanel extends HTMLElement {
   }
 
   _visiblePlants() {
-    const plants = this._plants();
+    const kind = this._kindTab;
+    const plants = this._plants().filter(
+      (p) => (p.plant_kind || "indoor") === kind,
+    );
     const filter = this._roomFilter;
     if (filter === ROOM_ALL) return plants;
     if (filter === "") {
@@ -1029,11 +1091,27 @@ class PlantCarePanel extends HTMLElement {
             <span class="form-section-label">📍 Standort</span>
             <span class="form-section-hint">optional</span>
           </header>
+          <div class="field">
+            <span class="field-label">Standort-Typ</span>
+            <div class="radio-group">
+              <label class="radio-pill"><input type="radio" name="plant_kind" value="indoor" data-action="set-plant-kind" ${(draft.plant_kind || "indoor") === "indoor" ? "checked" : ""}><span>🪴 Indoor</span></label>
+              <label class="radio-pill"><input type="radio" name="plant_kind" value="outdoor" data-action="set-plant-kind" ${draft.plant_kind === "outdoor" ? "checked" : ""}><span>🌳 Outdoor</span></label>
+            </div>
+          </div>
           ${this._renderLocationLightFields(draft)}
           <label class="field">
             <span>Position (Detail)</span>
-            <input name="location" value="${this._escapeAttr(draft.location || "")}" autocomplete="off" placeholder="z.B. Fensterbank Nord">
+            <input name="location" value="${this._escapeAttr(draft.location || "")}" autocomplete="off" placeholder="${draft.plant_kind === "outdoor" ? "z.B. Südseite Beet 2" : "z.B. Fensterbank Nord"}">
           </label>
+          ${draft.plant_kind === "outdoor" ? `
+            <div class="field">
+              <span class="field-label">Outdoor-Optionen</span>
+              <div class="checkbox-group">
+                <label class="checkbox-row"><input type="checkbox" name="frost_sensitive" value="1" ${draft.frost_sensitive ? "checked" : ""}><span>❄️ Frostempfindlich (Warnung bei Frost)</span></label>
+                <label class="checkbox-row"><input type="checkbox" name="winter_rest" value="1" ${draft.winter_rest ? "checked" : ""}><span>😴 Winterruhe (Dez–Feb keine Reminder)</span></label>
+              </div>
+            </div>
+          ` : ""}
           ${draft.suitability_warning ? `
             <div class="location-tips-card">
               <div class="warning-banner inline">
@@ -1114,22 +1192,25 @@ class PlantCarePanel extends HTMLElement {
 
   _renderLocationLightFields(draft) {
     const roomValue = draft.room_type || "";
-    const roomIsStandard = !roomValue || Object.prototype.hasOwnProperty.call(ROOM_LABELS, roomValue);
-    const roomSelectValue = roomIsStandard ? roomValue : "__other__";
+    const kind = draft.plant_kind === "outdoor" ? "outdoor" : "indoor";
+    const availableRooms = kind === "outdoor" ? ROOM_TYPES_OUTDOOR : ROOM_TYPES_INDOOR;
+    const isKnownForKind = availableRooms.includes(roomValue);
+    const roomSelectValue = !roomValue ? "" : (isKnownForKind ? roomValue : "__other__");
     const lightValue = draft.light_level || "";
+    const roomLabelFor = (r) => ROOM_LABELS[r] || r;
     return `
       <div class="form-grid form-grid-2 location-grid">
         <label class="field">
-          <span>Raum</span>
+          <span>${kind === "outdoor" ? "Outdoor-Standort" : "Raum"}</span>
           <select name="room_type_select" data-action="set-room">
             <option value="">– nicht angegeben –</option>
-            ${Object.entries(ROOM_LABELS).map(([val, label]) => `
-              <option value="${this._escapeAttr(val)}" ${roomSelectValue === val ? "selected" : ""}>${this._escape(label)}</option>
+            ${availableRooms.map((val) => `
+              <option value="${this._escapeAttr(val)}" ${roomSelectValue === val ? "selected" : ""}>${this._escape(roomLabelFor(val))}</option>
             `).join("")}
             <option value="__other__" ${roomSelectValue === "__other__" ? "selected" : ""}>Andere…</option>
           </select>
           ${roomSelectValue === "__other__" ? `
-            <input name="room_type_other" type="text" placeholder="Raum-Bezeichnung" value="${this._escapeAttr(roomValue)}" autocomplete="off">
+            <input name="room_type_other" type="text" placeholder="Bezeichnung" value="${this._escapeAttr(roomValue)}" autocomplete="off">
           ` : ""}
         </label>
 
@@ -1159,9 +1240,17 @@ class PlantCarePanel extends HTMLElement {
     const moistureValue =
       typeof moisture === "number" ? Math.max(0, Math.min(100, moisture)) : null;
 
+    const isOutdoor = (p.plant_kind || "indoor") === "outdoor";
+    const frostWarning = isOutdoor && p.frost_sensitive && p.frost_warning;
     return `
       <article class="detail">
         ${this._renderSuitabilityWarning(p)}
+        ${frostWarning ? `
+          <div class="warning-banner detail-warning frost-warning">
+            <strong>❄️ Frost vorhergesagt</strong>
+            <p>In den nächsten 24 Stunden sinkt die Temperatur unter den Gefrierpunkt – diese Pflanze ist als frostempfindlich markiert. Bitte schützen oder reinholen.</p>
+          </div>
+        ` : ""}
         <header class="detail-header">
           <div class="detail-photo">
             ${p.photo
@@ -1173,11 +1262,16 @@ class PlantCarePanel extends HTMLElement {
             ${p.species ? `<p class="species muted">${this._escape(p.species)}</p>` : ""}
             ${(p.room_type || p.light_level || p.location) ? `
               <p class="facts muted">
+                <span class="kind-badge kind-${isOutdoor ? "outdoor" : "indoor"}">${isOutdoor ? "🌳 Outdoor" : "🪴 Indoor"}</span>
                 ${p.room_type ? `<span>🏠 ${this._escape(ROOM_LABELS[p.room_type] || p.room_type)}</span>` : ""}
                 ${p.light_level ? `<span>💡 ${this._escape(LIGHT_LABELS[p.light_level] || p.light_level)}</span>` : ""}
                 ${p.location ? `<span>📍 ${this._escape(p.location)}</span>` : ""}
               </p>
-            ` : ""}
+            ` : `
+              <p class="facts muted">
+                <span class="kind-badge kind-${isOutdoor ? "outdoor" : "indoor"}">${isOutdoor ? "🌳 Outdoor" : "🪴 Indoor"}</span>
+              </p>
+            `}
             <div class="meta-row">
               <span class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</span>
               <button class="btn ghost small" data-action="edit" data-id="${this._escapeAttr(p.plant_id)}">Bearbeiten</button>
@@ -1825,6 +1919,18 @@ class PlantCarePanel extends HTMLElement {
         this._saveListMode(this._listMode);
         this._setState({});
         break;
+      case "set-kind-tab": {
+        const next = target.dataset.kind === "outdoor" ? "outdoor" : "indoor";
+        if (next === this._kindTab) break;
+        this._kindTab = next;
+        this._saveKindTab(next);
+        // Beim Tab-Wechsel Room-Filter zurücksetzen, sonst sieht der User
+        // vielleicht "leer" weil der vorherige Raum in der neuen Kategorie
+        // nicht existiert.
+        this._roomFilter = ROOM_ALL;
+        this._setState({});
+        break;
+      }
       case "toggle-ha-menu":
         // HA-Standard-Event – wird von HA-Main aufgefangen und togglet
         // die Seitenleiste. Muss aus dem Shadow Root heraus bubbeln.
@@ -2017,7 +2123,9 @@ class PlantCarePanel extends HTMLElement {
         this._executeBulkAction("fertilize_plant");
         break;
       case "new":
-        this._draft = {};
+        // Standort-Typ aus aktivem Tab vorbelegen, damit der User
+        // im Outdoor-Tab nicht jedes Mal manuell umstellen muss.
+        this._draft = { plant_kind: this._kindTab || "indoor" };
         this._setState({ _view: "add" });
         break;
       case "back":
@@ -2055,6 +2163,9 @@ class PlantCarePanel extends HTMLElement {
             room_type: p.room_type || "",
             suitability_warning: p.suitability_warning || "",
             plant_description: mergedDesc,
+            plant_kind: p.plant_kind || "indoor",
+            frost_sensitive: !!p.frost_sensitive,
+            winter_rest: !!p.winter_rest,
           };
           this._setState({ _view: "edit", _selectedId: id });
         }
@@ -2129,6 +2240,31 @@ class PlantCarePanel extends HTMLElement {
     if (t.name === "light_level") {
       this._draft = { ...(this._draft || {}), light_level: t.value };
     }
+    if (t.dataset && t.dataset.action === "set-plant-kind") {
+      const next = t.value === "outdoor" ? "outdoor" : "indoor";
+      const current = this._draft?.plant_kind || "indoor";
+      if (next === current) return;
+      // Beim Wechsel den Room-Type leeren, wenn er in der neuen Kategorie
+      // nicht passt – sonst landet z.B. "garten" beim Indoor-Switch im
+      // Dropdown unter "Andere..." was verwirrt.
+      const newDraft = { ...(this._draft || {}), plant_kind: next };
+      const room = newDraft.room_type || "";
+      const validRooms = next === "outdoor" ? ROOM_TYPES_OUTDOOR : ROOM_TYPES_INDOOR;
+      if (room && !validRooms.includes(room)) {
+        newDraft.room_type = "";
+      }
+      this._draft = newDraft;
+      this._render();
+      return;
+    }
+    if (t.name === "frost_sensitive") {
+      this._draft = { ...(this._draft || {}), frost_sensitive: t.checked };
+      return;
+    }
+    if (t.name === "winter_rest") {
+      this._draft = { ...(this._draft || {}), winter_rest: t.checked };
+      return;
+    }
   }
 
   async _onSubmit(evt) {
@@ -2162,6 +2298,17 @@ class PlantCarePanel extends HTMLElement {
     }
     delete data.room_type_select;
     delete data.room_type_other;
+
+    // Checkboxes: FormData lässt unchecked-Werte komplett weg → explizit
+    // false setzen, damit Edit-Mode den Wert zurücksetzen kann.
+    if (this._view === "add" || data.plant_kind === "outdoor") {
+      data.frost_sensitive = formData.get("frost_sensitive") === "1";
+      data.winter_rest = formData.get("winter_rest") === "1";
+    } else if (data.plant_kind === "indoor") {
+      // Beim Switch outdoor→indoor die Flags räumen.
+      data.frost_sensitive = false;
+      data.winter_rest = false;
+    }
 
     // Q&A-AI-Resultate aus dem Draft übernehmen
     if (this._draft && "suitability_warning" in this._draft) {
@@ -2418,6 +2565,91 @@ class PlantCarePanel extends HTMLElement {
       @keyframes slideIn {
         from { transform: translateX(20px); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
+      }
+
+      .kind-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+        background: var(--secondary-background-color, rgba(255,255,255,0.04));
+        padding: 4px;
+        border-radius: 14px;
+      }
+      .kind-tab {
+        flex: 1;
+        background: transparent;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 0.98rem;
+        font-weight: 500;
+        color: inherit;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: background .15s, color .15s, box-shadow .15s;
+      }
+      .kind-tab:hover { background: var(--sage-bg); }
+      .kind-tab.active {
+        background: var(--sage);
+        color: #fff;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      }
+      .kind-tab-count {
+        font-size: 0.78rem;
+        font-weight: 500;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(0,0,0,0.08);
+      }
+      .kind-tab.active .kind-tab-count {
+        background: rgba(255,255,255,0.22);
+      }
+      .empty-tab {
+        text-align: center;
+        padding: 32px 16px;
+      }
+      .empty-tab .btn { margin-top: 12px; }
+
+      .kind-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 500;
+      }
+      .kind-badge.kind-indoor {
+        background: var(--sage-bg);
+        color: var(--sage);
+      }
+      .kind-badge.kind-outdoor {
+        background: rgba(99, 152, 92, 0.18);
+        color: #2f6b2a;
+      }
+      .frost-warning {
+        background: rgba(70, 130, 200, 0.12) !important;
+        border-color: rgba(70, 130, 200, 0.35) !important;
+        border-left: 3px solid #4682c8 !important;
+      }
+      .frost-warning strong { color: #1d4d8a !important; }
+
+      .checkbox-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 0.92rem;
       }
 
       .rooms {

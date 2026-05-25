@@ -77,6 +77,9 @@ ADD_PLANT_SCHEMA = vol.Schema(
         vol.Optional("room_type", default=""): cv.string,
         vol.Optional("suitability_warning", default=""): cv.string,
         vol.Optional("plant_description", default=""): cv.string,
+        vol.Optional("plant_kind", default="indoor"): vol.In(["indoor", "outdoor"]),
+        vol.Optional("frost_sensitive", default=False): cv.boolean,
+        vol.Optional("winter_rest", default=False): cv.boolean,
     }
 )
 
@@ -92,6 +95,9 @@ UPDATE_PLANT_SCHEMA = vol.Schema(
         vol.Optional("moisture_sensor"): vol.Any(None, "", cv.entity_id),
         vol.Optional("photo"): cv.string,
         vol.Optional("light_level"): vol.In(["", *LIGHT_LEVELS]),
+        vol.Optional("plant_kind"): vol.In(["indoor", "outdoor"]),
+        vol.Optional("frost_sensitive"): cv.boolean,
+        vol.Optional("winter_rest"): cv.boolean,
         vol.Optional("room_type"): cv.string,
         vol.Optional("suitability_warning"): cv.string,
         vol.Optional("plant_description"): cv.string,
@@ -199,6 +205,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await coord.evaluate_reminders(entry.options)
         except Exception:  # noqa: BLE001 – Tick darf nie crashen
             _LOGGER.exception("Plant Care: Reminder-Scan fehlgeschlagen")
+        try:
+            await coord.evaluate_frost_warnings(entry.options)
+        except Exception:  # noqa: BLE001 – Tick darf nie crashen
+            _LOGGER.exception("Plant Care: Frost-Scan fehlgeschlagen")
 
     cancel_tick = async_track_time_interval(
         hass,

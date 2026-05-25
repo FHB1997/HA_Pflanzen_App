@@ -21,6 +21,7 @@ from .const import (
     CONF_QUIET_HOURS_START,
     CONF_RATE_LIMIT_HOURS,
     CONF_REMINDERS_ENABLED,
+    CONF_WEATHER_ENTITY,
     DEFAULT_NOTIFY_TITLE,
     DEFAULT_QUIET_HOURS_END,
     DEFAULT_QUIET_HOURS_START,
@@ -139,6 +140,12 @@ class PlantCareOptionsFlow(OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                         unit_of_measurement="h",
                     )
+                ),
+                vol.Optional(
+                    CONF_WEATHER_ENTITY,
+                    default=opts.get(CONF_WEATHER_ENTITY, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="weather")
                 ),
                 vol.Optional(
                     OPT_SEND_TEST,

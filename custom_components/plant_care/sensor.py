@@ -12,15 +12,26 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from ._utils import (
+    effective_fertilize_days,
+    effective_water_days,
     filter_open_treatments,
+    has_frost_in_forecast,
     has_overdue_treatment,
+    has_recent_rain,
+    is_winter_rest_active,
     needs_time_based,
     try_float,
 )
 from .const import (
+    CONF_WEATHER_ENTITY,
     DOMAIN,
+    FROST_FORECAST_HOURS,
+    FROST_THRESHOLD_C,
     MOISTURE_LOW_PCT,
     MOISTURE_OK_PCT,
+    RAIN_THRESHOLD_MM,
+    SEASON_FERTILIZE_MULT,
+    SEASON_WATER_MULT,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
@@ -29,6 +40,7 @@ from .const import (
     STATUS_NEEDS_FERTILIZER,
     STATUS_NEEDS_WATER,
     STATUS_OK,
+    WINTER_REST_MONTHS,
 )
 from .coordinator import PlantCareCoordinator
 
@@ -97,12 +109,19 @@ class PlantSensor(SensorEntity):
         if has_overdue_treatment(plant.get("treatments") or [], now):
             return STATUS_NEEDS_ATTENTION
 
-        # 1) Zeit-basiert für Wasser
+        # 0.5) Outdoor + Winterruhe → komplett ok, keine Reminder
+        if is_winter_rest_active(plant, now, WINTER_REST_MONTHS):
+            return STATUS_OK
+
+        # 1) Zeit-basiert für Wasser (mit Saison-Faktor für Outdoor)
+        eff_water = effective_water_days(
+            plant, now, season_multipliers=SEASON_WATER_MULT
+        )
         needs_water = needs_time_based(
-            plant.get("last_watered"), plant.get("water_days"), now
+            plant.get("last_watered"), eff_water, now
         )
 
-        # 2) Moisture-Sensor Override
+        # 2) Moisture-Sensor Override (Indoor + Outdoor, gleich behandelt)
         moisture_pct = self._read_moisture(plant.get("moisture_sensor"))
         if moisture_pct is not None:
             if moisture_pct < MOISTURE_LOW_PCT:
@@ -110,9 +129,20 @@ class PlantSensor(SensorEntity):
             elif moisture_pct > MOISTURE_OK_PCT:
                 needs_water = False
 
-        # 3) Zeit-basiert für Dünger
+        # 2.5) Wetter-Override für Outdoor: Regen heute → kein Gießen nötig
+        if (plant.get("plant_kind") or "indoor") == "outdoor":
+            weather_state = self._read_weather()
+            if weather_state is not None and has_recent_rain(
+                weather_state, RAIN_THRESHOLD_MM
+            ):
+                needs_water = False
+
+        # 3) Zeit-basiert für Dünger (mit Saison-Faktor für Outdoor)
+        eff_fert = effective_fertilize_days(
+            plant, now, season_multipliers=SEASON_FERTILIZE_MULT
+        )
         needs_fertilizer = needs_time_based(
-            plant.get("last_fertilized"), plant.get("fertilize_days"), now
+            plant.get("last_fertilized"), eff_fert, now
         )
 
         if needs_water and needs_fertilizer:
@@ -122,6 +152,17 @@ class PlantSensor(SensorEntity):
         if needs_fertilizer:
             return STATUS_NEEDS_FERTILIZER
         return STATUS_OK
+
+    def _read_weather(self) -> Any:
+        """Holt die HA-Weather-Entity-State, falls in den Options gesetzt."""
+        coord = self._coord
+        entry = getattr(coord, "_entry", None)
+        if entry is None:
+            return None
+        weather_entity = (entry.options.get(CONF_WEATHER_ENTITY) or "").strip()
+        if not weather_entity:
+            return None
+        return self._coord.hass.states.get(weather_entity)
 
     def _read_moisture(self, sensor_entity_id: str | None) -> float | None:
         if not sensor_entity_id:
@@ -135,6 +176,21 @@ class PlantSensor(SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         plant = self._plant
         moisture_pct = self._read_moisture(plant.get("moisture_sensor"))
+        # Frost-Warnung als Attribut, damit das Frontend einen Banner zeigen kann.
+        frost_warning = False
+        if (
+            (plant.get("plant_kind") or "indoor") == "outdoor"
+            and plant.get("frost_sensitive")
+        ):
+            weather_state = self._read_weather()
+            if weather_state is not None:
+                forecast = (weather_state.attributes or {}).get("forecast") or []
+                frost_warning = has_frost_in_forecast(
+                    forecast,
+                    datetime.now(timezone.utc),
+                    horizon_hours=FROST_FORECAST_HOURS,
+                    threshold_c=FROST_THRESHOLD_C,
+                )
         return {
             "plant_id": self._plant_id,
             "name": plant.get("name"),
@@ -154,6 +210,10 @@ class PlantSensor(SensorEntity):
             "room_type": plant.get("room_type", ""),
             "suitability_warning": plant.get("suitability_warning", ""),
             "plant_description": plant.get("plant_description", ""),
+            "plant_kind": plant.get("plant_kind", "indoor"),
+            "frost_sensitive": bool(plant.get("frost_sensitive", False)),
+            "winter_rest": bool(plant.get("winter_rest", False)),
+            "frost_warning": frost_warning,
             "treatments": plant.get("treatments", []),
             "open_treatments_count": len(
                 filter_open_treatments(plant.get("treatments") or [])

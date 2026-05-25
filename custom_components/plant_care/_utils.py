@@ -310,6 +310,125 @@ def cap_photos(
     return list(photos[:max_count]), list(photos[max_count:])
 
 
+def effective_water_days(
+    plant: dict[str, Any],
+    now: datetime,
+    *,
+    season_multipliers: dict[int, float] | None = None,
+) -> int:
+    """Rechnet das saisonal angepasste Gieß-Intervall für eine Pflanze.
+
+    Für ``plant_kind == "outdoor"`` wird ``water_days`` mit dem Monats-
+    Multiplikator gewichtet. Für Indoor-Pflanzen unverändert durchgereicht.
+    Rückgabe: ``0`` heißt "Intervall ausgesetzt" (z.B. Winter-Faktor 0).
+    """
+    base = int(plant.get("water_days") or 0)
+    if base <= 0:
+        return 0
+    if (plant.get("plant_kind") or "indoor") != "outdoor":
+        return base
+    table = season_multipliers if season_multipliers is not None else {}
+    mult = table.get(now.month, 1.0)
+    if mult <= 0:
+        return 0
+    return max(1, round(base * mult))
+
+
+def effective_fertilize_days(
+    plant: dict[str, Any],
+    now: datetime,
+    *,
+    season_multipliers: dict[int, float] | None = None,
+) -> int:
+    """Wie ``effective_water_days``, nur für ``fertilize_days``."""
+    base = int(plant.get("fertilize_days") or 0)
+    if base <= 0:
+        return 0
+    if (plant.get("plant_kind") or "indoor") != "outdoor":
+        return base
+    table = season_multipliers if season_multipliers is not None else {}
+    mult = table.get(now.month, 1.0)
+    if mult <= 0:
+        return 0
+    return max(1, round(base * mult))
+
+
+def is_winter_rest_active(
+    plant: dict[str, Any], now: datetime, winter_months: tuple[int, ...] = (12, 1, 2)
+) -> bool:
+    """True, wenn Outdoor-Pflanze mit ``winter_rest=True`` in einem Wintermonat ist."""
+    if (plant.get("plant_kind") or "indoor") != "outdoor":
+        return False
+    if not plant.get("winter_rest"):
+        return False
+    return now.month in winter_months
+
+
+def has_recent_rain(
+    weather_state: Any, threshold_mm: float
+) -> bool:
+    """Liest das ``precipitation``-Attribut einer HA-Weather-Entity.
+
+    Heuristik: das gewöhnliche ``precipitation``-Attribut bezeichnet bei den
+    meisten Weather-Integrationen den Niederschlag der aktuellen Forecast-
+    Periode (Stunde oder Tag). Wenn er den Schwellwert überschreitet, gilt
+    "es hat geregnet". Für robustere Lösungen kann der User einen eigenen
+    Regen-Sensor konfigurieren – das ist Phase 4.
+
+    Akzeptiert ein ``state``-Objekt (mit ``.attributes``-Dict) oder direkt
+    ein Attribut-Dict, damit es leicht testbar bleibt.
+    """
+    if weather_state is None:
+        return False
+    attrs = getattr(weather_state, "attributes", None)
+    if attrs is None and isinstance(weather_state, dict):
+        attrs = weather_state
+    if not attrs:
+        return False
+    value = attrs.get("precipitation")
+    if value is None:
+        return False
+    try:
+        return float(value) >= threshold_mm
+    except (TypeError, ValueError):
+        return False
+
+
+def has_frost_in_forecast(
+    forecast: list[dict[str, Any]] | None,
+    now: datetime,
+    *,
+    horizon_hours: int,
+    threshold_c: float,
+) -> bool:
+    """Sucht in der HA-Weather-Forecast-Liste nach einem Tief unter ``threshold_c``.
+
+    Berücksichtigt nur Einträge, deren ``datetime`` innerhalb von
+    ``horizon_hours`` ab ``now`` liegt. Bei Tages-Forecasts vergleicht es
+    ``templow``, bei Stunden-Forecasts ``temperature``.
+    """
+    if not forecast:
+        return False
+    cutoff = now + timedelta(hours=horizon_hours)
+    for entry in forecast:
+        when_iso = entry.get("datetime") or entry.get("date")
+        when = parse_iso(when_iso) if when_iso else None
+        if when is None or when > cutoff:
+            continue
+        # templow für Daily-Forecasts, temperature als Fallback für Hourly.
+        temp_val = entry.get("templow")
+        if temp_val is None:
+            temp_val = entry.get("temperature")
+        if temp_val is None:
+            continue
+        try:
+            if float(temp_val) < threshold_c:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def compute_snooze_last_notified(
     now: datetime, snooze_hours: int, rate_limit_hours: int
 ) -> datetime:
