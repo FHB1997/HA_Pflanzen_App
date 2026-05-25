@@ -1,7 +1,7 @@
 {
   "domain": "plant_care",
   "name": "Plant Care",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "documentation": "https://github.com/FHB1997/HA_Pflanzen_App",
   "issue_tracker": "https://github.com/FHB1997/HA_Pflanzen_App/issues",
   "codeowners": ["@FHB1997"],

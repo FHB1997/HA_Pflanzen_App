@@ -20,7 +20,6 @@ from ._utils import (
     filter_open_treatments,
     generate_care_events,
     has_frost_in_forecast,
-    has_recent_rain,
     is_in_quiet_hours,
     is_rate_limited,
     is_winter_rest_active,
@@ -28,6 +27,7 @@ from ._utils import (
     parse_iso,
     parse_notify_targets,
     parse_time_string,
+    precipitation_within_hours,
     sort_photos,
     utcnow_iso,
 )
@@ -51,6 +51,8 @@ from .const import (
     MIN_DIAGNOSE_INTERVAL_SECONDS,
     PHOTOS_URL_PATH,
     RAIN_THRESHOLD_MM,
+    SEASON_FERTILIZE_MULT,
+    SEASON_WATER_MULT,
     SIGNAL_NEW_PLANT,
     SIGNAL_PLANTS_UPDATED,
     SIGNAL_REMOVE_PLANT,
@@ -79,6 +81,11 @@ class PlantCareCoordinator:
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._plants: dict[str, dict[str, Any]] = {}
         self._entry: Any = None  # ConfigEntry, lazy bound via bind_entry
+        # Wetter-Forecast-Cache. Aktualisiert vom Reminder-Tick und
+        # synchron vom Sensor gelesen. Schema:
+        #   {entity_id, forecast: [...], precipitation_24h_mm: float,
+        #    frost_in_24h: bool, fetched_at: datetime}
+        self._weather_cache: dict[str, Any] | None = None
 
     def bind_entry(self, entry: Any) -> None:
         """Speichert die ConfigEntry-Referenz für Options-Zugriff.
@@ -485,7 +492,15 @@ class PlantCareCoordinator:
         all_events: list[dict[str, Any]] = []
         for plant in plants_to_check:
             all_events.extend(
-                generate_care_events(plant, start, end, now=now)
+                generate_care_events(
+                    plant,
+                    start,
+                    end,
+                    now=now,
+                    season_water_mult=SEASON_WATER_MULT,
+                    season_fert_mult=SEASON_FERTILIZE_MULT,
+                    winter_rest_months=WINTER_REST_MONTHS,
+                )
             )
         all_events.sort(key=lambda e: e["when"])
         return all_events
@@ -707,20 +722,86 @@ class PlantCareCoordinator:
             _LOGGER.info("Plant Care: %d Erinnerung(en) versendet", sent)
         return sent
 
+    async def refresh_weather_cache(self, options: Mapping[str, Any]) -> None:
+        """Pollt ``weather.get_forecasts`` für die konfigurierte Weather-Entity
+        und cached Forecast + Niederschlags-Summe + Frost-Flag.
+
+        Das ``forecast``-State-Attribut wurde in HA 2024.4 entfernt; Forecasts
+        kommen seither nur noch über diesen Service. Sync-Properties auf dem
+        Sensor lesen ``_weather_cache`` (ohne await).
+
+        Wird vom Reminder-Tick aufgerufen und löst eine Re-Render-Welle für
+        alle Pflanzen aus, damit ``frost_warning`` sichtbar wird.
+        """
+        weather_entity = (options.get(CONF_WEATHER_ENTITY) or "").strip()
+        if not weather_entity:
+            self._weather_cache = None
+            return
+        forecast: list[dict[str, Any]] = []
+        # Wir versuchen erst hourly (genauer), dann daily als Fallback.
+        for forecast_type in ("hourly", "daily"):
+            try:
+                result = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"type": forecast_type, "entity_id": weather_entity},
+                    blocking=True,
+                    return_response=True,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Plant Care: weather.get_forecasts(%s) fehlgeschlagen: %s",
+                    forecast_type,
+                    err,
+                )
+                continue
+            if not isinstance(result, dict):
+                continue
+            entity_data = result.get(weather_entity) or {}
+            candidate = entity_data.get("forecast") or []
+            if candidate:
+                forecast = candidate
+                break
+
+        now_utc = datetime.now(timezone.utc)
+        precip_mm = precipitation_within_hours(
+            forecast, now_utc, horizon_hours=FROST_FORECAST_HOURS
+        )
+        frost_flag = has_frost_in_forecast(
+            forecast,
+            now_utc,
+            horizon_hours=FROST_FORECAST_HOURS,
+            threshold_c=FROST_THRESHOLD_C,
+        )
+        self._weather_cache = {
+            "entity_id": weather_entity,
+            "forecast": forecast,
+            "precipitation_24h_mm": precip_mm,
+            "frost_in_24h": frost_flag,
+            "fetched_at": now_utc,
+        }
+        # Sensoren re-rendern, damit frost_warning + rain-Override greifen.
+        for plant_id in list(self._plants.keys()):
+            async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+
     async def evaluate_frost_warnings(
         self, options: Mapping[str, Any]
     ) -> int:
         """Sendet Frost-Warnungen für Outdoor-Pflanzen mit ``frost_sensitive``.
 
-        Liest die Forecast-Liste der konfigurierten Weather-Entity. Wenn ein
-        Tief in den nächsten ``FROST_FORECAST_HOURS`` unter ``FROST_THRESHOLD_C``
-        liegt, geht eine Push-Notification raus. Pro Pflanze nur einmal pro
+        Liest den Forecast aus dem vom Reminder-Tick gefüllten
+        ``_weather_cache``. Wenn ein Tief in den nächsten
+        ``FROST_FORECAST_HOURS`` unter ``FROST_THRESHOLD_C`` liegt, geht eine
+        Push-Notification raus. Pro Pflanze nur einmal pro
         ``FROST_NOTIFY_COOLDOWN_HOURS``.
+
+        Bewusst NICHT an ``CONF_REMINDERS_ENABLED`` und Ruhezeiten gekoppelt –
+        Frost ist ein sicherheitskritisches Einzelereignis, das auch nachts
+        und bei deaktivierten Routine-Erinnerungen feuern soll. Opt-in ist
+        das Setzen der Weather-Entity selbst.
 
         Returns: Anzahl gesendeter Frost-Warnungen.
         """
-        if not options.get(CONF_REMINDERS_ENABLED, False):
-            return 0
         weather_entity = (options.get(CONF_WEATHER_ENTITY) or "").strip()
         if not weather_entity:
             return 0
@@ -729,19 +810,13 @@ class PlantCareCoordinator:
         if not notify_targets:
             return 0
 
-        weather_state = self.hass.states.get(weather_entity)
-        if weather_state is None:
+        cache = self._weather_cache
+        if not cache or cache.get("entity_id") != weather_entity:
             return 0
-        forecast = (weather_state.attributes or {}).get("forecast") or []
-        now_utc = datetime.now(timezone.utc)
-        if not has_frost_in_forecast(
-            forecast,
-            now_utc,
-            horizon_hours=FROST_FORECAST_HOURS,
-            threshold_c=FROST_THRESHOLD_C,
-        ):
+        if not cache.get("frost_in_24h"):
             return 0
 
+        now_utc = datetime.now(timezone.utc)
         title = options.get(CONF_NOTIFY_TITLE) or DEFAULT_NOTIFY_TITLE
 
         sent = 0

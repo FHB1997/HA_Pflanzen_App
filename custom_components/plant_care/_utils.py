@@ -134,6 +134,15 @@ def parse_notify_targets(value: str | None) -> list[tuple[str, str]]:
     return targets
 
 
+def _next_month_start(when_dt: datetime) -> datetime:
+    """Liefert den 1. des nächsten Monats (gleiche Stunde/Tz). Hilfsfunktion
+    für saisonales Skipping in :func:`generate_care_events`.
+    """
+    if when_dt.month == 12:
+        return when_dt.replace(year=when_dt.year + 1, month=1, day=1)
+    return when_dt.replace(month=when_dt.month + 1, day=1)
+
+
 def generate_care_events(
     plant: dict[str, Any],
     start: datetime,
@@ -141,6 +150,9 @@ def generate_care_events(
     *,
     now: datetime | None = None,
     max_per_kind: int = 10,
+    season_water_mult: dict[int, float] | None = None,
+    season_fert_mult: dict[int, float] | None = None,
+    winter_rest_months: tuple[int, ...] = (12, 1, 2),
 ) -> list[dict[str, Any]]:
     """Erzeugt Pflege-Termine für eine Pflanze im Zeitraum [start, end).
 
@@ -153,12 +165,21 @@ def generate_care_events(
     **ein** Backlog-Event bei ``start`` eingefügt mit ``overdue=True``.
     Sonst keine Events vor ``start``.
 
+    Outdoor-Pflanzen (``plant_kind == "outdoor"``) werden saisonal angepasst,
+    wenn ``season_*_mult`` übergeben wird: Multiplikator 0 in einem Monat
+    überspringt diesen komplett (Springer-Logik auf 1. des Folgemonats);
+    ``winter_rest=True`` springt von Dez/Jan/Feb direkt auf 1. März.
+    Damit stimmt der Kalender wieder mit ``PlantSensor.native_value`` überein.
+
     Args:
         plant: Plant-Dict aus dem Coordinator.
         start: Inklusiver Anfang des Anzeige-Zeitraums.
         end: Exklusives Ende.
         now: Aktuelle Zeit für Overdue-Bestimmung. Default: ``start``.
         max_per_kind: Maximal so viele Events pro kind (Default 10).
+        season_water_mult: Optional Outdoor-Saison-Tabelle für Wasser.
+        season_fert_mult: Optional Outdoor-Saison-Tabelle für Dünger.
+        winter_rest_months: Monate (1-12), in denen ``winter_rest`` greift.
 
     Returns:
         Liste von Dicts mit ``{plant_id, name, kind, when, overdue, original_when}``,
@@ -169,27 +190,63 @@ def generate_care_events(
     events: list[dict[str, Any]] = []
     plant_id = plant.get("id", "")
     name = plant.get("name") or plant_id
+    is_outdoor = (plant.get("plant_kind") or "indoor") == "outdoor"
+    winter_rest = bool(plant.get("winter_rest")) and is_outdoor
 
-    for kind, last_key, days_key in (
-        ("water", "last_watered", "water_days"),
-        ("fertilize", "last_fertilized", "fertilize_days"),
+    for kind, last_key, days_key, mult_table in (
+        ("water", "last_watered", "water_days",
+         season_water_mult if is_outdoor else None),
+        ("fertilize", "last_fertilized", "fertilize_days",
+         season_fert_mult if is_outdoor else None),
     ):
         days_val = plant.get(days_key)
         if not days_val:
             continue
         try:
-            days = int(days_val)
+            base_days = int(days_val)
         except (TypeError, ValueError):
             continue
-        if days <= 0:
+        if base_days <= 0:
             continue
+
+        def advance(current: datetime) -> datetime:
+            """Liefert das Datum des nächsten Events nach ``current``,
+            unter Berücksichtigung von Winterruhe und Saison-Multiplikator.
+            """
+            # Winterruhe → springe an 1. März
+            if winter_rest and current.month in winter_rest_months:
+                if current.month == 12:
+                    return current.replace(year=current.year + 1, month=3, day=1)
+                return current.replace(month=3, day=1)
+            # Saison-Multiplikator (nur Outdoor)
+            if mult_table:
+                mult = mult_table.get(current.month, 1.0)
+                if mult <= 0:
+                    return _next_month_start(current)
+                delta = max(1, round(base_days * mult))
+            else:
+                delta = base_days
+            return current + timedelta(days=delta)
+
+        # "Aktuell pausiert" – wenn weder Vergangenheit noch Zukunft passt,
+        # vorwärts schieben bis die nächste Saison wieder Events liefert.
+        def skip_inactive(due: datetime) -> datetime:
+            for _ in range(13):  # max. 1 Jahr im Voraus
+                in_rest = (
+                    winter_rest and due.month in winter_rest_months
+                )
+                paused = bool(mult_table) and mult_table.get(due.month, 1.0) <= 0
+                if not in_rest and not paused:
+                    return due
+                due = advance(due)
+            return due  # Safety
 
         last = parse_iso(plant.get(last_key))
         if last is None:
             # Nie gepflegt → erstes Event fällig ab Start.
-            due = start
+            due = skip_inactive(start)
         else:
-            due = last + timedelta(days=days)
+            due = advance(last)
             if due < start:
                 # Backlog-Event bei start, falls nicht zu lange her.
                 if due < now and due >= start - timedelta(days=30):
@@ -201,11 +258,21 @@ def generate_care_events(
                         "original_when": due,
                         "overdue": True,
                     })
-                missed = (start - due).days // days + 1
-                due = due + timedelta(days=days * missed)
+                # Vorwärts springen bis >= start, max. 400 Schritte als
+                # Endlosschleifen-Schutz.
+                for _ in range(400):
+                    if due >= start:
+                        break
+                    nxt = advance(due)
+                    if nxt <= due:
+                        break
+                    due = nxt
+                due = skip_inactive(due)
 
         count = 0
-        while due < end and count < max_per_kind:
+        for _ in range(max_per_kind * 4):  # Loop-Schutz mit Saisons-Skipping
+            if due >= end or count >= max_per_kind:
+                break
             events.append({
                 "plant_id": plant_id,
                 "name": name,
@@ -214,8 +281,11 @@ def generate_care_events(
                 "original_when": due,
                 "overdue": due < now,
             })
-            due = due + timedelta(days=days)
             count += 1
+            nxt = advance(due)
+            if nxt <= due:
+                break
+            due = nxt
 
     events.sort(key=lambda e: e["when"])
     return events
@@ -364,34 +434,42 @@ def is_winter_rest_active(
     return now.month in winter_months
 
 
-def has_recent_rain(
-    weather_state: Any, threshold_mm: float
-) -> bool:
-    """Liest das ``precipitation``-Attribut einer HA-Weather-Entity.
+def precipitation_within_hours(
+    forecast: list[dict[str, Any]] | None,
+    now: datetime,
+    *,
+    horizon_hours: int,
+) -> float:
+    """Summiert das ``precipitation``-Feld aller Forecast-Einträge im
+    Fenster ``[now, now + horizon_hours)``.
 
-    Heuristik: das gewöhnliche ``precipitation``-Attribut bezeichnet bei den
-    meisten Weather-Integrationen den Niederschlag der aktuellen Forecast-
-    Periode (Stunde oder Tag). Wenn er den Schwellwert überschreitet, gilt
-    "es hat geregnet". Für robustere Lösungen kann der User einen eigenen
-    Regen-Sensor konfigurieren – das ist Phase 4.
+    Akzeptiert sowohl Stunden- als auch Tages-Forecasts. Naive ``datetime``-
+    Werte werden als UTC interpretiert (analog zu :func:`has_frost_in_forecast`).
+    Einträge vor ``now`` oder jenseits des Horizonts werden ignoriert.
 
-    Akzeptiert ein ``state``-Objekt (mit ``.attributes``-Dict) oder direkt
-    ein Attribut-Dict, damit es leicht testbar bleibt.
+    Rückgabe: Gesamtniederschlag in mm. Bei leerer/fehlender Liste 0.0.
     """
-    if weather_state is None:
-        return False
-    attrs = getattr(weather_state, "attributes", None)
-    if attrs is None and isinstance(weather_state, dict):
-        attrs = weather_state
-    if not attrs:
-        return False
-    value = attrs.get("precipitation")
-    if value is None:
-        return False
-    try:
-        return float(value) >= threshold_mm
-    except (TypeError, ValueError):
-        return False
+    if not forecast:
+        return 0.0
+    cutoff = now + timedelta(hours=horizon_hours)
+    total = 0.0
+    for entry in forecast:
+        when_iso = entry.get("datetime") or entry.get("date")
+        when = parse_iso(when_iso) if when_iso else None
+        if when is None:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when < now or when > cutoff:
+            continue
+        value = entry.get("precipitation")
+        if value is None:
+            continue
+        try:
+            total += float(value)
+        except (TypeError, ValueError):
+            continue
+    return total
 
 
 def has_frost_in_forecast(
@@ -403,9 +481,11 @@ def has_frost_in_forecast(
 ) -> bool:
     """Sucht in der HA-Weather-Forecast-Liste nach einem Tief unter ``threshold_c``.
 
-    Berücksichtigt nur Einträge, deren ``datetime`` innerhalb von
-    ``horizon_hours`` ab ``now`` liegt. Bei Tages-Forecasts vergleicht es
-    ``templow``, bei Stunden-Forecasts ``temperature``.
+    Berücksichtigt nur Einträge mit ``datetime`` im Fenster ``[now, now + horizon_hours)``.
+    Bei Tages-Forecasts vergleicht es ``templow``, bei Stunden-Forecasts ``temperature``.
+
+    Robust gegen naive ``datetime``-Werte (z.B. ``date: "2026-01-15"`` aus daily
+    forecasts): werden als UTC behandelt statt zu crashen.
     """
     if not forecast:
         return False
@@ -413,7 +493,13 @@ def has_frost_in_forecast(
     for entry in forecast:
         when_iso = entry.get("datetime") or entry.get("date")
         when = parse_iso(when_iso) if when_iso else None
-        if when is None or when > cutoff:
+        if when is None:
+            continue
+        # Naive Forecast-Timestamps als UTC interpretieren, sonst kracht
+        # der Vergleich gegen das tz-aware `cutoff` mit TypeError.
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when < now or when > cutoff:
             continue
         # templow für Daily-Forecasts, temperature als Fallback für Hourly.
         temp_val = entry.get("templow")

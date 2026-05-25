@@ -17,7 +17,7 @@ from _utils import (  # type: ignore[import-not-found]
     generate_care_events,
     has_frost_in_forecast,
     has_overdue_treatment,
-    has_recent_rain,
+    precipitation_within_hours,
     is_in_quiet_hours,
     is_rate_limited,
     is_winter_rest_active,
@@ -593,30 +593,38 @@ def test_is_winter_rest_active_only_when_flag_and_month_match():
     assert is_winter_rest_active(indoor, jan) is False
 
 
-def test_has_recent_rain_true_when_above_threshold():
-    class _State:
-        attributes = {"precipitation": 2.5}
-    assert has_recent_rain(_State(), 1.0) is True
+def test_precipitation_within_hours_sums_forecast():
+    now = datetime(2026, 6, 1, 8, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-06-01T10:00:00+00:00", "precipitation": 0.5},
+        {"datetime": "2026-06-01T14:00:00+00:00", "precipitation": 1.2},
+        {"datetime": "2026-06-02T09:00:00+00:00", "precipitation": 0.4},
+    ]
+    total = precipitation_within_hours(forecast, now, horizon_hours=12)
+    assert total == 1.7  # 0.5 + 1.2; der 26h-Eintrag ist außerhalb
 
 
-def test_has_recent_rain_false_when_below_threshold():
-    class _State:
-        attributes = {"precipitation": 0.2}
-    assert has_recent_rain(_State(), 1.0) is False
+def test_precipitation_within_hours_ignores_past_entries():
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-05-31T18:00:00+00:00", "precipitation": 5.0},
+        {"datetime": "2026-06-01T18:00:00+00:00", "precipitation": 0.3},
+    ]
+    assert precipitation_within_hours(forecast, now, horizon_hours=24) == 0.3
 
 
-def test_has_recent_rain_handles_missing_state():
-    assert has_recent_rain(None, 1.0) is False
+def test_precipitation_within_hours_handles_naive_datetime():
+    now = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"date": "2026-06-01", "precipitation": 2.0},
+    ]
+    assert precipitation_within_hours(forecast, now, horizon_hours=48) == 2.0
 
 
-def test_has_recent_rain_handles_missing_attribute():
-    class _State:
-        attributes = {}
-    assert has_recent_rain(_State(), 1.0) is False
-
-
-def test_has_recent_rain_accepts_dict():
-    assert has_recent_rain({"precipitation": "3.4"}, 1.0) is True
+def test_precipitation_within_hours_empty_or_missing():
+    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    assert precipitation_within_hours([], now, horizon_hours=24) == 0.0
+    assert precipitation_within_hours(None, now, horizon_hours=24) == 0.0
 
 
 def test_has_frost_in_forecast_detects_templow_below():
@@ -655,3 +663,92 @@ def test_has_frost_in_forecast_handles_empty_list():
     now = datetime(2026, 11, 1, tzinfo=timezone.utc)
     assert has_frost_in_forecast([], now, horizon_hours=24, threshold_c=0.0) is False
     assert has_frost_in_forecast(None, now, horizon_hours=24, threshold_c=0.0) is False
+
+
+def test_has_frost_in_forecast_handles_naive_datetime_without_crash():
+    # Daily-Forecasts geben oft "date: 2026-11-02" ohne TZ → parse_iso liefert
+    # naive datetime. Frühere Version verglich naive > aware → TypeError-Crash.
+    now = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"date": "2026-11-02", "templow": -3.0},
+    ]
+    assert has_frost_in_forecast(forecast, now, horizon_hours=48, threshold_c=0.0) is True
+
+
+def test_generate_care_events_outdoor_winter_rest_skips_to_march():
+    plant = {
+        "id": "p1",
+        "name": "Hortensie",
+        "plant_kind": "outdoor",
+        "winter_rest": True,
+        "water_days": 7,
+        "last_watered": None,
+        "last_fertilized": None,
+    }
+    start = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    end = datetime(2026, 4, 30, tzinfo=timezone.utc)
+    events = generate_care_events(
+        plant, start, end,
+        season_water_mult=_SEASON_WATER_TEST,
+        season_fert_mult=_SEASON_FERT_TEST,
+        winter_rest_months=(12, 1, 2),
+        max_per_kind=10,
+    )
+    assert events, "Erwarte Events nach Winterruhe"
+    first_water = next(e for e in events if e["kind"] == "water")
+    # Erstes Event darf nicht im Januar/Februar liegen
+    assert first_water["when"].month >= 3
+
+
+def test_generate_care_events_outdoor_summer_more_frequent_than_indoor():
+    plant_in = {
+        "id": "p1", "name": "X", "plant_kind": "indoor",
+        "water_days": 10, "last_watered": "2026-06-01T08:00:00+00:00",
+        "last_fertilized": None,
+    }
+    plant_out = {
+        "id": "p2", "name": "Y", "plant_kind": "outdoor",
+        "water_days": 10, "last_watered": "2026-06-01T08:00:00+00:00",
+        "last_fertilized": None,
+    }
+    start = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    events_in = [e for e in generate_care_events(
+        plant_in, start, end, season_water_mult=_SEASON_WATER_TEST,
+    ) if e["kind"] == "water"]
+    events_out = [e for e in generate_care_events(
+        plant_out, start, end, season_water_mult=_SEASON_WATER_TEST,
+    ) if e["kind"] == "water"]
+    # Outdoor (mult 0.7 → 7 Tage) produziert mehr Events im selben Fenster
+    # als Indoor (10 Tage)
+    assert len(events_out) > len(events_in)
+
+
+def test_generate_care_events_outdoor_zero_multiplier_skips_month():
+    # Dünger im November für Outdoor (mult=0)
+    plant = {
+        "id": "p1", "name": "X", "plant_kind": "outdoor",
+        "fertilize_days": 30, "last_fertilized": None, "last_watered": None,
+        "water_days": 7,
+    }
+    start = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 12, 31, tzinfo=timezone.utc)
+    events = generate_care_events(
+        plant, start, end,
+        season_water_mult=_SEASON_WATER_TEST,
+        season_fert_mult=_SEASON_FERT_TEST,
+    )
+    fert_events = [e for e in events if e["kind"] == "fertilize"]
+    # November und Dezember haben mult=0 → keine Dünge-Events im Fenster
+    assert fert_events == [], f"Unerwartete Dünge-Events: {fert_events}"
+
+
+def test_has_frost_in_forecast_ignores_past_dated_entries():
+    # Past-dated entries (z.B. aktuelle Stunde aus Hourly-Forecast) dürfen
+    # nicht zu Falsch-Alarmen führen.
+    now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+    forecast = [
+        {"datetime": "2026-10-31T03:00:00+00:00", "templow": -5.0},  # gestern
+        {"datetime": "2026-11-02T06:00:00+00:00", "templow": 8.0},   # heute warm
+    ]
+    assert has_frost_in_forecast(forecast, now, horizon_hours=48, threshold_c=0.0) is False

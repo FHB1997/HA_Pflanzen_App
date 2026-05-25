@@ -160,8 +160,21 @@ class PlantCarePanel extends HTMLElement {
   }
 
   _signature(plants) {
+    // Wichtig: jedes Feld muss explizit in den Sig fließen, sonst skippt
+    // _render() ein hass-Update. moisture_pct mit `||""` würde 0% in
+    // Empty-String falten ("kein Sensor") → 0%-Werte triggern keinen
+    // Re-Render. Wir nutzen daher Nullish + JSON.
     return plants
-      .map((p) => `${p.plant_id}|${p.state}|${p.last_watered || ""}|${p.last_fertilized || ""}|${p.moisture_pct || ""}|${p.photo ? "p" : ""}`)
+      .map((p) => JSON.stringify([
+        p.plant_id,
+        p.state,
+        p.last_watered ?? "",
+        p.last_fertilized ?? "",
+        p.moisture_pct ?? "",
+        p.photo ? 1 : 0,
+        p.plant_kind ?? "indoor",
+        p.frost_warning ? 1 : 0,
+      ]))
       .join("#");
   }
 
@@ -191,16 +204,19 @@ class PlantCarePanel extends HTMLElement {
       }));
   }
 
-  // conversation.home_assistant ist der Built-in Assist-Agent ohne LLM und
-  // beantwortet freie Pflanzen-Fragen mit "Entschuldigung, das habe ich
-  // nicht verstanden". Wir blenden ihn aus der Auswahl aus.
+  // Built-in HA-Conversation-Agents (lokaler Assist + HA-Cloud Pipeline)
+  // beantworten freie Pflanzen-Fragen mit "Entschuldigung, das habe ich nicht
+  // verstanden", weil sie kein LLM bedienen. Wir blenden sie aus, damit der
+  // Picker nur sinnvolle Optionen anbietet. Echte LLM-Conversation-Entities
+  // (OpenAI/Anthropic/Gemini/Ollama) heißen z.B. conversation.openai_*.
   _findConversationAgents() {
     if (!this._hass) return [];
+    const builtinPrefix = "conversation.home_assistant";
     return Object.values(this._hass.states)
       .filter(
         (s) =>
           s.entity_id.startsWith("conversation.") &&
-          s.entity_id !== "conversation.home_assistant",
+          !s.entity_id.startsWith(builtinPrefix),
       )
       .map((s) => ({
         entity_id: s.entity_id,
@@ -680,11 +696,22 @@ class PlantCarePanel extends HTMLElement {
       agentSelect.addEventListener("change", (evt) => {
         const value = evt.target.value || null;
         this._savePreferredConversationAgent(value);
-        // conversation_id eines anderen Agenten verwerfen.
+        // conversation_id + agentId eines anderen Agenten verwerfen UND
+        // contextSent zurücksetzen, damit der nächste Send dem neuen Agent
+        // wieder den Plant-Context vorspannt. Ein sichtbares System-
+        // Trennzeichen macht dem User klar, dass die KI nicht mehr den
+        // vorherigen Verlauf kennt.
         for (const state of this._chatStates.values()) {
           if (state.agentId && state.agentId !== value) {
             state.conversationId = null;
             state.agentId = null;
+            state.contextSent = false;
+            if (state.messages.length > 0) {
+              state.messages.push({
+                role: "system",
+                text: "— KI-Agent gewechselt, neue Sitzung —",
+              });
+            }
           }
         }
         this._setState({});
@@ -697,6 +724,18 @@ class PlantCarePanel extends HTMLElement {
         requestAnimationFrame(() => {
           container.scrollTop = container.scrollHeight;
         });
+      }
+    }
+    // Nach erfolgreichem Chat-Reply den Input wieder fokussieren, damit
+    // der User direkt nachfragen kann ohne erneut zu tappen (Mobile).
+    if (this._chatFocusPending) {
+      const pid = this._chatFocusPending;
+      this._chatFocusPending = null;
+      const input = this.shadowRoot.querySelector(
+        `[data-chat-input="${CSS.escape(pid)}"]`,
+      );
+      if (input && !input.disabled) {
+        requestAnimationFrame(() => input.focus());
       }
     }
   }
@@ -1610,29 +1649,53 @@ class PlantCarePanel extends HTMLElement {
   _getChatState(plantId) {
     let state = this._chatStates.get(plantId);
     if (!state) {
-      state = { messages: [], conversationId: null, busy: false };
+      state = {
+        messages: [],
+        conversationId: null,
+        busy: false,
+        // contextSent verfolgt explizit, ob _buildChatContext schon einmal
+        // erfolgreich an die KI rausging. So bleibt der Kontext erhalten,
+        // selbst wenn der erste Send fehlschlägt oder der Agent gewechselt
+        // wird – wir prüfen NICHT mehr nur messages.length === 1.
+        contextSent: false,
+        agentId: null,
+      };
       this._chatStates.set(plantId, state);
     }
     return state;
   }
 
   _buildChatContext(p) {
+    const isOutdoor = (p.plant_kind || "indoor") === "outdoor";
     const room = p.room_type ? (ROOM_LABELS[p.room_type] || p.room_type) : "";
     const light = p.light_level ? (LIGHT_LABELS[p.light_level] || p.light_level) : "";
     const lastW = this._relativeTime(p.last_watered);
     const lastF = this._relativeTime(p.last_fertilized);
+    const kindLabel = isOutdoor
+      ? "Outdoor-Pflanze (Garten/Balkon/Terrasse)"
+      : "Zimmerpflanze (Indoor)";
     const lines = [
-      `Du beantwortest Fragen zur Zimmerpflanze "${p.name}"${p.species ? ` (${p.species})` : ""}.`,
+      `Du beantwortest Fragen zur ${kindLabel} "${p.name}"${p.species ? ` (${p.species})` : ""}.`,
     ];
     const facts = [];
     if (room) facts.push(`Raum: ${room}`);
     if (light) facts.push(`Licht: ${light}`);
     if (p.location) facts.push(`Position: ${p.location}`);
     if (facts.length) lines.push(`Standort – ${facts.join(", ")}.`);
-    lines.push(
-      `Gießintervall alle ${p.water_days} Tage (zuletzt ${lastW}); ` +
-      `Düngeintervall alle ${p.fertilize_days} Tage (zuletzt ${lastF}).`,
-    );
+    if (p.water_days) {
+      lines.push(`Gießintervall alle ${p.water_days} Tage (zuletzt ${lastW}).`);
+    }
+    if (p.fertilize_days) {
+      lines.push(`Düngeintervall alle ${p.fertilize_days} Tage (zuletzt ${lastF}).`);
+    }
+    if (isOutdoor) {
+      const outdoorFlags = [];
+      if (p.frost_sensitive) outdoorFlags.push("frostempfindlich");
+      if (p.winter_rest) outdoorFlags.push("Winterruhe Dez-Feb");
+      if (outdoorFlags.length) {
+        lines.push(`Outdoor-Eigenschaften: ${outdoorFlags.join(", ")}.`);
+      }
+    }
     if (p.plant_description) {
       lines.push(`Hintergrund: ${p.plant_description}`);
     }
@@ -1668,15 +1731,16 @@ class PlantCarePanel extends HTMLElement {
       return;
     }
 
-    const isFirst = state.messages.filter((m) => m.role === "user").length === 1;
+    // Kontext einfügen wenn (a) noch nie erfolgreich gesendet oder (b)
+    // Agent gewechselt – der neue Agent kennt unsere Pflanze sonst nicht.
+    const needsContext = !state.contextSent || state.agentId !== agentId;
     const payload = { text: trimmed, language: "de", agent_id: agentId };
-    if (isFirst) {
+    if (needsContext) {
       payload.text = `${this._buildChatContext(plant)}\n\nFrage: ${trimmed}`;
     }
     if (state.conversationId && state.agentId === agentId) {
       payload.conversation_id = state.conversationId;
     }
-    state.agentId = agentId;
 
     try {
       const res = await this._callServiceWithResponse(
@@ -1684,11 +1748,19 @@ class PlantCarePanel extends HTMLElement {
         "process",
         payload,
       );
+      // Reply-Shape kann je nach HA-Version/Fallback variieren. Wir picken
+      // BEIDE Pfade konsistent – sonst kann conversation_id verloren gehen,
+      // während der Reply-Text aus dem wrapped Shape kommt.
+      const flat = res || {};
+      const wrapped = res?.service_response || {};
       const reply =
-        res?.response?.speech?.plain?.speech ||
-        res?.service_response?.response?.speech?.plain?.speech ||
+        flat.response?.speech?.plain?.speech ||
+        wrapped.response?.speech?.plain?.speech ||
         "";
-      if (res?.conversation_id) state.conversationId = res.conversation_id;
+      const convId = flat.conversation_id || wrapped.conversation_id;
+      if (convId) state.conversationId = convId;
+      state.contextSent = true;
+      state.agentId = agentId;
       state.messages.push({
         role: "assistant",
         text: reply || "Die KI hat keine Antwort geliefert.",
@@ -1703,6 +1775,7 @@ class PlantCarePanel extends HTMLElement {
     } finally {
       state.busy = false;
       this._chatScrollPending = true;
+      this._chatFocusPending = plantId;
       this._setState({});
     }
   }
@@ -2371,6 +2444,9 @@ class PlantCarePanel extends HTMLElement {
     try {
       await this._callService("plant_care", "remove_plant", { plant_id: plantId });
       this._showToast("success", "Pflanze gelöscht");
+      // Per-Plant Chat-State räumen, sonst sammeln sich Map-Einträge an
+      // und ID-Recycling würde alte Verläufe wieder zeigen.
+      this._chatStates.delete(plantId);
       this._draft = null;
       this._setState({ _view: "list", _selectedId: null });
     } catch (err) {
@@ -2962,6 +3038,18 @@ class PlantCarePanel extends HTMLElement {
       }
       .chat-msg-user { justify-content: flex-end; }
       .chat-msg-assistant { justify-content: flex-start; }
+      .chat-msg-system {
+        justify-content: center;
+        margin: 8px 0 4px;
+      }
+      .chat-msg-system .chat-bubble {
+        background: transparent;
+        border: none;
+        color: var(--secondary-text-color, #777);
+        font-size: 0.75rem;
+        font-style: italic;
+        padding: 2px 8px;
+      }
       .chat-bubble {
         max-width: 85%;
         padding: 8px 12px;

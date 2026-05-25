@@ -171,6 +171,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Setup einer Plant-Care-Instanz."""
     coord = PlantCareCoordinator(hass)
     await coord.async_load()
+    # Entry an Coordinator binden BEVOR Sensoren erzeugt werden – sonst sieht
+    # PlantSensor._read_weather coord._entry == None bei der ersten Render.
+    coord.bind_entry(entry)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN]["coordinator"] = coord
@@ -201,6 +204,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Periodischer Scan für integrierte Pflege-Erinnerungen.
     async def _reminder_tick(_now: Any) -> None:
+        # Wetter-Forecast vorab cachen, damit Reminder + Frost + Sensor
+        # den gleichen Stand sehen.
+        try:
+            await coord.refresh_weather_cache(entry.options)
+        except Exception:  # noqa: BLE001 – Tick darf nie crashen
+            _LOGGER.exception("Plant Care: Weather-Cache-Refresh fehlgeschlagen")
         try:
             await coord.evaluate_reminders(entry.options)
         except Exception:  # noqa: BLE001 – Tick darf nie crashen
@@ -210,6 +219,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:  # noqa: BLE001 – Tick darf nie crashen
             _LOGGER.exception("Plant Care: Frost-Scan fehlgeschlagen")
 
+    # Initial-Run kurz nach Start, damit der Cache nicht erst nach 30 min greift.
+    hass.async_create_task(_reminder_tick(None))
+
     cancel_tick = async_track_time_interval(
         hass,
         _reminder_tick,
@@ -217,8 +229,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data[DOMAIN]["cancel_tick"] = cancel_tick
 
-    # Coordinator braucht entry-Zugriff für async_snooze_plant.
-    coord.bind_entry(entry)
+    # Coordinator-Bind erfolgt jetzt vor async_forward_entry_setups (s.o.).
 
     @callback
     def _handle_action_event(event: Event) -> None:

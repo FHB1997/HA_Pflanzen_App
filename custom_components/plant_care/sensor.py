@@ -15,18 +15,13 @@ from ._utils import (
     effective_fertilize_days,
     effective_water_days,
     filter_open_treatments,
-    has_frost_in_forecast,
     has_overdue_treatment,
-    has_recent_rain,
     is_winter_rest_active,
     needs_time_based,
     try_float,
 )
 from .const import (
-    CONF_WEATHER_ENTITY,
     DOMAIN,
-    FROST_FORECAST_HOURS,
-    FROST_THRESHOLD_C,
     MOISTURE_LOW_PCT,
     MOISTURE_OK_PCT,
     RAIN_THRESHOLD_MM,
@@ -113,12 +108,18 @@ class PlantSensor(SensorEntity):
         if is_winter_rest_active(plant, now, WINTER_REST_MONTHS):
             return STATUS_OK
 
-        # 1) Zeit-basiert für Wasser (mit Saison-Faktor für Outdoor)
+        # 1) Zeit-basiert für Wasser (mit Saison-Faktor für Outdoor).
+        # eff_water == 0 bedeutet "Intervall ausgesetzt" (z.B. Wintermonat-
+        # Multiplikator 0). needs_time_based(None, 0, now) würde für nie-
+        # gegossene Pflanzen fälschlich True liefern, weil der None-Branch
+        # vor dem Zero-Branch greift – darum hier hart kappen.
         eff_water = effective_water_days(
             plant, now, season_multipliers=SEASON_WATER_MULT
         )
-        needs_water = needs_time_based(
-            plant.get("last_watered"), eff_water, now
+        needs_water = (
+            False
+            if eff_water == 0
+            else needs_time_based(plant.get("last_watered"), eff_water, now)
         )
 
         # 2) Moisture-Sensor Override (Indoor + Outdoor, gleich behandelt)
@@ -129,20 +130,22 @@ class PlantSensor(SensorEntity):
             elif moisture_pct > MOISTURE_OK_PCT:
                 needs_water = False
 
-        # 2.5) Wetter-Override für Outdoor: Regen heute → kein Gießen nötig
+        # 2.5) Wetter-Override für Outdoor: vorhergesagter Regen → kein Gießen.
+        # Liest aus dem vom Coordinator-Tick gefüllten Forecast-Cache.
         if (plant.get("plant_kind") or "indoor") == "outdoor":
-            weather_state = self._read_weather()
-            if weather_state is not None and has_recent_rain(
-                weather_state, RAIN_THRESHOLD_MM
-            ):
+            cache = self._weather_cache()
+            if cache and cache.get("precipitation_24h_mm", 0) >= RAIN_THRESHOLD_MM:
                 needs_water = False
 
-        # 3) Zeit-basiert für Dünger (mit Saison-Faktor für Outdoor)
+        # 3) Zeit-basiert für Dünger (mit Saison-Faktor für Outdoor).
+        # Gleiche Zero-Sonderbehandlung wie bei Wasser oben.
         eff_fert = effective_fertilize_days(
             plant, now, season_multipliers=SEASON_FERTILIZE_MULT
         )
-        needs_fertilizer = needs_time_based(
-            plant.get("last_fertilized"), eff_fert, now
+        needs_fertilizer = (
+            False
+            if eff_fert == 0
+            else needs_time_based(plant.get("last_fertilized"), eff_fert, now)
         )
 
         if needs_water and needs_fertilizer:
@@ -153,16 +156,9 @@ class PlantSensor(SensorEntity):
             return STATUS_NEEDS_FERTILIZER
         return STATUS_OK
 
-    def _read_weather(self) -> Any:
-        """Holt die HA-Weather-Entity-State, falls in den Options gesetzt."""
-        coord = self._coord
-        entry = getattr(coord, "_entry", None)
-        if entry is None:
-            return None
-        weather_entity = (entry.options.get(CONF_WEATHER_ENTITY) or "").strip()
-        if not weather_entity:
-            return None
-        return self._coord.hass.states.get(weather_entity)
+    def _weather_cache(self) -> dict[str, Any] | None:
+        """Liefert den vom Coordinator gepflegten Forecast-Cache (sync)."""
+        return getattr(self._coord, "_weather_cache", None)
 
     def _read_moisture(self, sensor_entity_id: str | None) -> float | None:
         if not sensor_entity_id:
@@ -176,21 +172,16 @@ class PlantSensor(SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         plant = self._plant
         moisture_pct = self._read_moisture(plant.get("moisture_sensor"))
-        # Frost-Warnung als Attribut, damit das Frontend einen Banner zeigen kann.
+        # Frost-Warnung als Attribut – Frontend rendert daraus den Banner.
+        # Quelle ist der vom Coordinator gepflegte Forecast-Cache.
         frost_warning = False
         if (
             (plant.get("plant_kind") or "indoor") == "outdoor"
             and plant.get("frost_sensitive")
         ):
-            weather_state = self._read_weather()
-            if weather_state is not None:
-                forecast = (weather_state.attributes or {}).get("forecast") or []
-                frost_warning = has_frost_in_forecast(
-                    forecast,
-                    datetime.now(timezone.utc),
-                    horizon_hours=FROST_FORECAST_HOURS,
-                    threshold_c=FROST_THRESHOLD_C,
-                )
+            cache = self._weather_cache()
+            if cache is not None:
+                frost_warning = bool(cache.get("frost_in_24h", False))
         return {
             "plant_id": self._plant_id,
             "name": plant.get("name"),
