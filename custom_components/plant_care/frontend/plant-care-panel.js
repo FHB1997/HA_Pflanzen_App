@@ -990,7 +990,10 @@ class PlantCarePanel extends HTMLElement {
   _renderLibraryPicker() {
     const lib = _libraryCache;
     if (lib === null) {
-      this._loadLibrary().then(() => this._render());
+      // force=true: _libraryCache ist modul-global, nicht Teil der
+      // Render-Signatur → ohne force greift der Signatur-Cache und
+      // die "wird geladen…"-Meldung bleibt stehen.
+      this._loadLibrary().then(() => this._render(true));
       return `<p class="muted">Bibliothek wird geladen...</p>`;
     }
     if (!lib.length) {
