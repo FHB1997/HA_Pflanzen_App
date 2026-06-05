@@ -635,6 +635,13 @@ class PlantCareCoordinator:
         Returns:
             Anzahl tatsächlich versendeter Notifications.
         """
+        # Sensoren vor dem Status-Read neu rendern, damit der zeit-basierte
+        # Status frisch in hass.states steht – auch bei einem manuellen
+        # send_reminders-Service-Call ohne vorausgehenden Tick. Sonst läse
+        # diese Methode einen veralteten State (z.B. "ok" für eine längst
+        # fällige Pflanze) und würde keine Notification senden.
+        self.async_refresh_sensors()
+
         notify_service_full = (options.get(CONF_NOTIFY_SERVICE) or "").strip()
         enabled = options.get(CONF_REMINDERS_ENABLED, False)
 
