@@ -602,6 +602,21 @@ class PlantCareCoordinator:
             new_last_notified.isoformat(),
         )
 
+    def async_refresh_sensors(self) -> None:
+        """Stößt ein Re-Render aller Pflanzen-Sensoren an.
+
+        ``PlantSensor`` pollt nicht (``should_poll=False``) und berechnet
+        seinen Status zeit-basiert in ``native_value``. Der State landet aber
+        nur dann in ``hass.states``, wenn ein ``SIGNAL_PLANTS_UPDATED``
+        ankommt. Ohne periodisches Re-Render bliebe der State einer bereits
+        gegossenen Pflanze auf ``ok`` stehen, bis ein User-Event eintritt –
+        wodurch ``evaluate_reminders`` (und etwaige eigene State-basierte
+        Automationen) nie ``needs_water`` zu sehen bekäme. Darum rendert der
+        Reminder-Tick die Sensoren periodisch neu.
+        """
+        for plant_id in list(self._plants.keys()):
+            async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+
     # ------------------------- Reminders / Notifications -------------------------
 
     async def evaluate_reminders(
@@ -620,6 +635,13 @@ class PlantCareCoordinator:
         Returns:
             Anzahl tatsächlich versendeter Notifications.
         """
+        # Sensoren vor dem Status-Read neu rendern, damit der zeit-basierte
+        # Status frisch in hass.states steht – auch bei einem manuellen
+        # send_reminders-Service-Call ohne vorausgehenden Tick. Sonst läse
+        # diese Methode einen veralteten State (z.B. "ok" für eine längst
+        # fällige Pflanze) und würde keine Notification senden.
+        self.async_refresh_sensors()
+
         notify_service_full = (options.get(CONF_NOTIFY_SERVICE) or "").strip()
         enabled = options.get(CONF_REMINDERS_ENABLED, False)
 
@@ -780,9 +802,9 @@ class PlantCareCoordinator:
             "frost_in_24h": frost_flag,
             "fetched_at": now_utc,
         }
-        # Sensoren re-rendern, damit frost_warning + rain-Override greifen.
-        for plant_id in list(self._plants.keys()):
-            async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)
+        # Das Re-Render der Sensoren (damit frost_warning + rain-Override
+        # greifen) übernimmt der Reminder-Tick zentral via
+        # ``async_refresh_sensors`` – auch im Fall ohne Weather-Entity.
 
     async def evaluate_frost_warnings(
         self, options: Mapping[str, Any]

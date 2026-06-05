@@ -620,6 +620,32 @@ class PlantCarePanel extends HTMLElement {
     return `vor ${months} Monat${months === 1 ? "" : "en"}`;
   }
 
+  /**
+   * Countdown bis zur nächsten Gießung für die Übersicht.
+   * Quelle ist das vom Sensor berechnete `next_water_at` (saisonal +
+   * Winterruhe-bereinigt). Der Pflanzen-Status hat Vorrang: meldet der
+   * Sensor bereits `needs_water`/`needs_both`, wird "fällig"/"überfällig"
+   * gezeigt, selbst wenn das Zeit-Intervall rechnerisch noch nicht abgelaufen
+   * ist (z.B. wegen Feuchte-Sensor-Override).
+   */
+  _nextWaterText(p) {
+    const needsWater = p.state === "needs_water" || p.state === "needs_both";
+    const iso = p.next_water_at;
+    if (!iso) {
+      // Kein Intervall bzw. ausgesetzt (z.B. Winterruhe).
+      return needsWater ? "Gießen fällig" : "Gießen pausiert";
+    }
+    const due = Date.parse(iso);
+    if (Number.isNaN(due)) return "–";
+    let diffDays = Math.ceil((due - Date.now()) / 86400000);
+    if (needsWater && diffDays > 0) diffDays = 0; // Status hat Vorrang
+    if (diffDays > 1) return `Gießen in ${diffDays} Tagen`;
+    if (diffDays === 1) return "Gießen in 1 Tag";
+    if (diffDays === 0) return "heute gießen";
+    const overdue = -diffDays;
+    return `überfällig (${overdue} Tag${overdue === 1 ? "" : "e"})`;
+  }
+
   /* -------------------------------- Render ------------------------------- */
 
   _hasFocusedInput() {
@@ -875,7 +901,7 @@ class PlantCarePanel extends HTMLElement {
           <div class="row-title">${this._escape(p.name)}</div>
           <div class="row-meta">
             <span class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</span>
-            <span class="muted small">💧 ${this._escape(this._relativeTime(p.last_watered))}</span>
+            <span class="muted small">💧 ${this._escape(this._nextWaterText(p))}</span>
           </div>
         </div>
         ${this._bulkMode ? "" : `
@@ -909,7 +935,7 @@ class PlantCarePanel extends HTMLElement {
           <div class="card-footer">
             <div class="card-status">
               <p class="status ${STATUS_CLASS[status] || ""}">${this._escape(STATUS_LABEL[status] || status)}</p>
-              <p class="muted small">💧 ${this._escape(this._relativeTime(p.last_watered))}</p>
+              <p class="muted small">💧 ${this._escape(this._nextWaterText(p))}</p>
             </div>
             ${this._bulkMode ? "" : `
               <div class="card-actions">

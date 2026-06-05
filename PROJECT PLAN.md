@@ -101,9 +101,6 @@ plant-care-ha/
 ├── pytest.ini, requirements_test.txt
 ├── .gitignore
 │
-├── blueprints/automation/plant_care/
-│   └── water_reminder.yaml                # Pro-Pflanze-Reminder-Blueprint
-│
 ├── tests/                                 # Pytest-Suite für _utils.py
 │   ├── conftest.py, test_utils.py, ...
 │
@@ -188,7 +185,6 @@ plant-care-ha/
 ### Lovelace
 
 - ✅ Plant Care Custom Card (`plant-care-card.js`) für reguläre Dashboards
-- ✅ Pflege-Erinnerungs-Blueprint (`blueprints/automation/plant_care/water_reminder.yaml`)
 
 -----
 
@@ -201,7 +197,7 @@ aktuelle Stelle im Code:
 |---|---|---|
 | Foto-basierte Pflanzenerkennung | ✅ | `_aiIdentifyFromPhoto` in `plant-care-panel.js`, Upload-View in `http.py` |
 | Verlaufsdiagramme (SVG-Linechart, 90 Tage) | ✅ | `_renderHistorySection` in `plant-care-panel.js`, `water_history`/`fertilize_history` im Coordinator |
-| Pflege-Erinnerungen | ✅ | Integriert (Options-Flow + Scan-Tick in `coordinator.evaluate_reminders`) **und** Blueprint (`blueprints/automation/plant_care/water_reminder.yaml`) |
+| Pflege-Erinnerungen | ✅ | Integriert (Options-Flow + Scan-Tick in `coordinator.evaluate_reminders`) |
 | Lovelace Custom Card | ✅ | `frontend/plant-care-card.js` |
 | Räume-Filter | ✅ | `ROOM_TYPES` in `const.py`, Filter-Pills in der Listenansicht |
 | Behandlungen / Krankheitserkennung | ✅ | Diagnose-Modal mit Foto-KI **und** manuellem Text-Pfad |

@@ -18,7 +18,7 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant. Plant Care besteht aus e
 - Räume-Filter + Bulk-Aktionen für mehrere Pflanzen
 - Zwei Listen-Ansichten: Kacheln (Standard) oder Kompakte Liste (umschaltbar via ☰/▦ in der Topbar, Auswahl wird in localStorage gespeichert)
 - Quick-Action-Buttons (💧 / 🌱) direkt auf jeder Pflanzen-Karte
-- Pflege-Erinnerungen integriert *oder* via Blueprint, inkl. Test-Benachrichtigung
+- Integrierte Pflege-Erinnerungen, inkl. Test-Benachrichtigung
 - Lovelace Custom Card für reguläre Dashboards
 - Cache-Buster für das Panel-JS via Manifest-Version
 
@@ -187,9 +187,7 @@ Im Add/Edit-Formular einen Sensor auswählen. Die Logik:
 
 ## Erinnerungen einrichten
 
-Es gibt zwei Wege – such dir einen aus.
-
-### Variante A (empfohlen): Integrierte Erinnerungen über Options
+### Integrierte Erinnerungen über Options
 
 Eine zentrale Konfiguration, gilt für **alle** Pflanzen, ohne Automation pro Pflanze:
 
@@ -237,20 +235,6 @@ data:
   # Optional: Ruhezeit und Rate-Limit ignorieren
   force: true
 ```
-
-### Variante B: Pro-Pflanze-Automation via Blueprint
-
-Wenn du pro Pflanze einen anderen Notify-Kanal willst (z.B. Wohnzimmer →
-Telegram, Schlafzimmer → Push):
-
-1. **Einstellungen → Automatisierungen & Szenen → Blueprints → Blueprint importieren**
-2. URL: `https://github.com/FHB1997/HA_Pflanzen_App/blob/main/blueprints/automation/plant_care/water_reminder.yaml`
-3. Pflanze, Notify-Service und Ruhezeiten auswählen → **Automatisierung erstellen**
-4. Pro Pflanze wiederholen
-
-Beide Varianten dürfen parallel laufen – das Rate-Limit der integrierten
-Erinnerungen verhindert nur Mehrfach-Notifications aus der **integrierten**
-Variante; der Blueprint hat seine eigene Debounce-Logik.
 
 ## Lovelace Custom Card
 
