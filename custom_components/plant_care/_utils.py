@@ -60,6 +60,27 @@ def needs_time_based(
     return now >= due
 
 
+def next_due_date(
+    last_iso: str | None, days: int | None, now: datetime
+) -> datetime | None:
+    """Liefert den Zeitpunkt der nächsten fälligen, zeit-basierten Pflege.
+
+    Gegenstück zu :func:`needs_time_based` – statt eines Bool gibt es das
+    konkrete Fälligkeitsdatum zurück, damit das Frontend "Gießen in X Tagen"
+    rendern kann.
+
+    - ``days`` falsy (0/None) → ``None`` (Intervall ausgesetzt/deaktiviert).
+    - ``last_iso`` None/ungültig → ``now`` (sofort fällig, da noch nie gepflegt).
+    - sonst ``last + days``.
+    """
+    if not days:
+        return None
+    last = parse_iso(last_iso)
+    if last is None:
+        return now
+    return last + timedelta(days=int(days))
+
+
 def parse_time_string(value: str | None) -> dt_time | None:
     """Parst ``HH:MM`` oder ``HH:MM:SS``; gibt None bei ungültiger Eingabe."""
     if not value:

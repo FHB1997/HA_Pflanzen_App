@@ -210,6 +210,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await coord.refresh_weather_cache(entry.options)
         except Exception:  # noqa: BLE001 – Tick darf nie crashen
             _LOGGER.exception("Plant Care: Weather-Cache-Refresh fehlgeschlagen")
+        # Sensoren neu rendern, damit zeit-basierte Status-Wechsel (z.B.
+        # ok → needs_water nach Ablauf des Gieß-Intervalls) in hass.states
+        # landen. Ohne dieses Re-Render würden Reminder + Blueprint-Trigger
+        # nur für nie-gegossene Pflanzen feuern (deren State schon beim Start
+        # needs_water ist). Muss VOR evaluate_reminders laufen, das den State
+        # aus hass.states liest.
+        coord.async_refresh_sensors()
         try:
             await coord.evaluate_reminders(entry.options)
         except Exception:  # noqa: BLE001 – Tick darf nie crashen

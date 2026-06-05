@@ -23,6 +23,7 @@ from _utils import (  # type: ignore[import-not-found]
     is_winter_rest_active,
     migrate_legacy_photo,
     needs_time_based,
+    next_due_date,
     parse_action_id,
     parse_iso,
     parse_notify_targets,
@@ -116,6 +117,38 @@ def test_needs_time_based_exactly_due():
 def test_needs_time_based_overdue():
     ts = (NOW - timedelta(days=14)).isoformat()
     assert needs_time_based(ts, 7, NOW) is True
+
+
+# --------------------------- next_due_date ---------------------------
+
+def test_next_due_date_never_watered_due_now():
+    # Noch nie gepflegt → sofort fällig (now).
+    assert next_due_date(None, 7, NOW) == NOW
+
+
+def test_next_due_date_days_zero_returns_none():
+    ts = (NOW - timedelta(days=3)).isoformat()
+    assert next_due_date(ts, 0, NOW) is None
+
+
+def test_next_due_date_days_none_returns_none():
+    ts = (NOW - timedelta(days=3)).isoformat()
+    assert next_due_date(ts, None, NOW) is None
+
+
+def test_next_due_date_future():
+    ts = (NOW - timedelta(days=2)).isoformat()
+    assert next_due_date(ts, 7, NOW) == NOW + timedelta(days=5)
+
+
+def test_next_due_date_overdue_in_past():
+    ts = (NOW - timedelta(days=10)).isoformat()
+    assert next_due_date(ts, 7, NOW) == NOW - timedelta(days=3)
+
+
+def test_next_due_date_garbage_iso_due_now():
+    # Unparseable → wie "noch nie": sofort fällig.
+    assert next_due_date("kaputt", 7, NOW) == NOW
 
 
 # --------------------------- utcnow_iso ---------------------------

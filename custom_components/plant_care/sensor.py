@@ -18,6 +18,7 @@ from ._utils import (
     has_overdue_treatment,
     is_winter_rest_active,
     needs_time_based,
+    next_due_date,
     try_float,
 )
 from .const import (
@@ -168,10 +169,37 @@ class PlantSensor(SensorEntity):
             return None
         return try_float(state.state)
 
+    def _next_due(self, plant: dict[str, Any], now: datetime) -> tuple[
+        str | None, str | None
+    ]:
+        """Nächste Fälligkeit (ISO) für Wasser und Dünger.
+
+        Nutzt dieselben saisonal angepassten Intervalle wie
+        ``native_value``. Während der Winterruhe (Outdoor) ist die Pflege
+        ausgesetzt → beide Werte ``None``.
+        """
+        if is_winter_rest_active(plant, now, WINTER_REST_MONTHS):
+            return None, None
+        eff_water = effective_water_days(
+            plant, now, season_multipliers=SEASON_WATER_MULT
+        )
+        eff_fert = effective_fertilize_days(
+            plant, now, season_multipliers=SEASON_FERTILIZE_MULT
+        )
+        next_water = next_due_date(plant.get("last_watered"), eff_water, now)
+        next_fert = next_due_date(plant.get("last_fertilized"), eff_fert, now)
+        return (
+            next_water.isoformat() if next_water else None,
+            next_fert.isoformat() if next_fert else None,
+        )
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         plant = self._plant
         moisture_pct = self._read_moisture(plant.get("moisture_sensor"))
+        next_water_at, next_fertilize_at = self._next_due(
+            plant, datetime.now(timezone.utc)
+        )
         # Frost-Warnung als Attribut – Frontend rendert daraus den Banner.
         # Quelle ist der vom Coordinator gepflegte Forecast-Cache.
         frost_warning = False
@@ -192,6 +220,8 @@ class PlantSensor(SensorEntity):
             "fertilize_days": plant.get("fertilize_days"),
             "last_watered": plant.get("last_watered"),
             "last_fertilized": plant.get("last_fertilized"),
+            "next_water_at": next_water_at,
+            "next_fertilize_at": next_fertilize_at,
             "moisture_sensor": plant.get("moisture_sensor"),
             "moisture_pct": moisture_pct,
             "photo": plant.get("photo", ""),
