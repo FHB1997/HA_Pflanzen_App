@@ -17,7 +17,7 @@ Verwalte deine Zimmerpflanzen direkt in Home Assistant – mit eigener Sidebar, 
 - **Sensoren optional** – funktioniert auch komplett ohne Hardware
 - **Foto-Verlauf** pro Pflanze (max. 100, FIFO)
 - **Kalender / Agenda** kommender Pflege-Termine + HA-Calendar-Entity
-- **Pflege-Erinnerungen** integriert oder via Blueprint, inkl. Test-Benachrichtigung
+- **Pflege-Erinnerungen** integriert, inkl. Test-Benachrichtigung
 - **Komplett lokal** – keine externe Cloud, keine externe Datenbank
 
 ## Voraussetzungen

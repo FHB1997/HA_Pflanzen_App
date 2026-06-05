@@ -610,9 +610,9 @@ class PlantCareCoordinator:
         nur dann in ``hass.states``, wenn ein ``SIGNAL_PLANTS_UPDATED``
         ankommt. Ohne periodisches Re-Render bliebe der State einer bereits
         gegossenen Pflanze auf ``ok`` stehen, bis ein User-Event eintritt –
-        wodurch weder der Blueprint-State-Trigger noch ``evaluate_reminders``
-        je ``needs_water`` zu sehen bekämen. Darum rendert der Reminder-Tick
-        die Sensoren periodisch neu.
+        wodurch ``evaluate_reminders`` (und etwaige eigene State-basierte
+        Automationen) nie ``needs_water`` zu sehen bekäme. Darum rendert der
+        Reminder-Tick die Sensoren periodisch neu.
         """
         for plant_id in list(self._plants.keys()):
             async_dispatcher_send(self.hass, SIGNAL_PLANTS_UPDATED, plant_id)

@@ -213,10 +213,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             # evaluate_reminders rendert die Sensoren zu Beginn selbst neu
             # (siehe async_refresh_sensors dort), damit zeit-basierte Status-
-            # Wechsel (ok → needs_water) sowohl in hass.states landen – Basis
-            # für den Blueprint-State-Trigger – als auch von den integrierten
-            # Remindern gesehen werden. Läuft nach dem Weather-Refresh, damit
-            # Regen-/Frost-Override frisch sind.
+            # Wechsel (ok → needs_water) in hass.states landen und von den
+            # integrierten Remindern – und etwaigen eigenen State-basierten
+            # Automationen – gesehen werden. Läuft nach dem Weather-Refresh,
+            # damit Regen-/Frost-Override frisch sind.
             await coord.evaluate_reminders(entry.options)
         except Exception:  # noqa: BLE001 – Tick darf nie crashen
             _LOGGER.exception("Plant Care: Reminder-Scan fehlgeschlagen")
